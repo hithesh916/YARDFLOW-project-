@@ -68,12 +68,7 @@ export default function BillingPage() {
 
   async function confirm() {
     if (!current) return;
-    const inv = paymentStatus === "Paid" ? invoice.trim().toUpperCase() : (invoice.trim().toUpperCase() || "N/A");
-    
-    if (paymentStatus === "Paid" && !invoice.trim()) {
-      toast.error("Invoice number is required for Paid status.");
-      return;
-    }
+    const inv = invoice.trim().toUpperCase() || "N/A";
 
     setBusy(true);
 
@@ -250,17 +245,13 @@ export default function BillingPage() {
                 </div>
 
                 <label className="mb-2 block text-[13px] font-bold text-slate-700">
-                  3. ALPHANUMERIC INVOICE / RECEIPT NO *
+                  3. ALPHANUMERIC INVOICE / RECEIPT NO
                 </label>
                 <input
                   value={invoice}
                   onChange={(e) => setInvoice(e.target.value)}
                   onKeyDown={(e) => e.key === "Enter" && confirm()}
-                  placeholder={
-                    paymentStatus === "Not Paid"
-                      ? "Enter optional invoice (or leave blank)"
-                      : "E.G. INV-2026-9041"
-                  }
+                  placeholder="E.G. INV-2026-9041 (OPTIONAL)"
                   className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-3 text-sm outline-none focus:border-blue-300 focus:ring-[3px] focus:ring-blue-100"
                 />
               </div>
@@ -271,7 +262,7 @@ export default function BillingPage() {
               <div className="flex flex-col sm:flex-row gap-3 border-t border-slate-100 pt-5">
                 <button
                   onClick={confirm}
-                  disabled={busy || (paymentStatus === "Paid" && !invoice.trim())}
+                  disabled={busy}
                   className="flex w-full sm:flex-1 items-center justify-center gap-2 rounded-lg bg-blue-600 py-3.5 text-sm font-extrabold text-white shadow-sm transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400 text-center"
                 >
                   <CheckCircle2 size={18} />
