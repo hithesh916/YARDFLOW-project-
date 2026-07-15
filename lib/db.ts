@@ -93,9 +93,17 @@ const DEFAULT_SETTINGS = {
   timezone: "Asia/Kolkata",
 };
 
+// Memory cache fallbacks for serverless environments where fs is read-only or ephemeral
+let memoryLedger: Ledger | null = null;
+let memoryActivity: ActivityEntry[] | null = null;
+
 async function readLedger(): Promise<Ledger> {
+  if (memoryLedger) {
+    return memoryLedger;
+  }
   try {
-    const l = JSON.parse(await fs.readFile(LEDGER_FILE, "utf8")) as Ledger;
+    const content = await fs.readFile(LEDGER_FILE, "utf8");
+    const l = JSON.parse(content) as Ledger;
     const seed = buildSeed();
     if (!l.settings) {
       l.settings = { ...DEFAULT_SETTINGS };
@@ -109,42 +117,64 @@ async function readLedger(): Promise<Ledger> {
     if (!l.permissions) {
       l.permissions = seed.permissions;
     }
+    memoryLedger = l;
     return l;
   } catch {
     const seed = buildSeed();
-    await ensureDir();
-    await fs.writeFile(LEDGER_FILE, JSON.stringify(seed, null, 2));
+    memoryLedger = seed;
     try {
-      await fs.access(ACTIVITY_FILE);
-    } catch {
-      await fs.writeFile(
-        ACTIVITY_FILE,
-        JSON.stringify(buildSeedActivity(seed.tickets), null, 2),
-      );
+      await ensureDir();
+      await fs.writeFile(LEDGER_FILE, JSON.stringify(seed, null, 2));
+    } catch (e) {
+      console.warn("Failed to write ledger file to disk, running in memory-only mode:", e);
     }
     return seed;
   }
 }
 
 async function writeLedger(l: Ledger) {
-  await ensureDir();
-  await fs.writeFile(LEDGER_FILE, JSON.stringify(l, null, 2));
+  memoryLedger = l;
+  try {
+    await ensureDir();
+    await fs.writeFile(LEDGER_FILE, JSON.stringify(l, null, 2));
+  } catch (e) {
+    console.warn("Failed to write ledger file to disk, updating memory-only:", e);
+  }
 }
 
 async function readActivity(): Promise<ActivityEntry[]> {
+  if (memoryActivity) {
+    return memoryActivity;
+  }
   try {
-    return JSON.parse(await fs.readFile(ACTIVITY_FILE, "utf8")) as ActivityEntry[];
+    const content = await fs.readFile(ACTIVITY_FILE, "utf8");
+    const acts = JSON.parse(content) as ActivityEntry[];
+    memoryActivity = acts;
+    return acts;
   } catch {
-    return [];
+    const defaultActs = memoryLedger ? buildSeedActivity(memoryLedger.tickets) : [];
+    memoryActivity = defaultActs;
+    try {
+      await ensureDir();
+      await fs.writeFile(ACTIVITY_FILE, JSON.stringify(defaultActs, null, 2));
+    } catch (e) {
+      console.warn("Failed to write default activity file to disk:", e);
+    }
+    return defaultActs;
   }
 }
 
 async function appendActivity(entries: ActivityEntry[]) {
   if (!entries.length) return;
-  await ensureDir();
   const current = await readActivity();
   const next = [...entries, ...current].slice(0, ACTIVITY_LIMIT);
-  await fs.writeFile(ACTIVITY_FILE, JSON.stringify(next, null, 2));
+  memoryActivity = next;
+  try {
+    await ensureDir();
+    await fs.writeFile(ACTIVITY_FILE, JSON.stringify(next, null, 2));
+  } catch (e) {
+    console.warn("Failed to write updated activity file to disk:", e);
+  }
 }
 
 /* ---------- mutate wrapper ---------- */
