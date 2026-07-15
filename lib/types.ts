@@ -110,6 +110,7 @@ export interface Ledger {
   tenants: TenantClient[];
   operators: OperatorAccount[];
   permissions: RolePermission[];
+  lastResetDate?: string;
 }
 
 export const STATUS_LABELS: Record<TicketStatus, string> = {

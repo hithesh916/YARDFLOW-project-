@@ -97,8 +97,53 @@ const DEFAULT_SETTINGS = {
 let memoryLedger: Ledger | null = null;
 let memoryActivity: ActivityEntry[] | null = null;
 
+function getTodayString(timezone: string = "Asia/Kolkata"): string {
+  try {
+    return new Date().toLocaleDateString("sv-SE", { timeZone: timezone });
+  } catch {
+    return new Date().toISOString().split("T")[0];
+  }
+}
+
+async function checkAndTriggerDailyReset(l: Ledger) {
+  const tz = l.settings?.timezone || "Asia/Kolkata";
+  const todayStr = getTodayString(tz);
+  
+  if (!l.lastResetDate) {
+    l.lastResetDate = todayStr;
+    await writeLedger(l);
+    return;
+  }
+  
+  if (l.lastResetDate !== todayStr) {
+    console.log(`[DAILY RESET] Resetting yard data for new day: ${todayStr} (last: ${l.lastResetDate})`);
+    l.tickets = [];
+    l.alerts = [];
+    l.counters.serial = 0;
+    l.lastResetDate = todayStr;
+    await writeLedger(l);
+    
+    const resetEntry = {
+      id: rid(),
+      at: new Date().toISOString(),
+      action: "reset" as const,
+      detail: `Automatic daily reset at midnight (${todayStr})`,
+    };
+    
+    try {
+      const currentActivity = await readActivity();
+      const nextActivity = [resetEntry, ...currentActivity].slice(0, ACTIVITY_LIMIT);
+      memoryActivity = nextActivity;
+      await fs.writeFile(ACTIVITY_FILE, JSON.stringify(nextActivity, null, 2));
+    } catch (e) {
+      console.warn("Failed to update activity log on daily reset:", e);
+    }
+  }
+}
+
 async function readLedger(): Promise<Ledger> {
   if (memoryLedger) {
+    await checkAndTriggerDailyReset(memoryLedger);
     return memoryLedger;
   }
   try {
@@ -118,9 +163,12 @@ async function readLedger(): Promise<Ledger> {
       l.permissions = seed.permissions;
     }
     memoryLedger = l;
+    await checkAndTriggerDailyReset(l);
     return l;
   } catch {
     const seed = buildSeed();
+    const tz = seed.settings?.timezone || "Asia/Kolkata";
+    seed.lastResetDate = getTodayString(tz);
     memoryLedger = seed;
     try {
       await ensureDir();
@@ -395,6 +443,8 @@ export function ackAlert(id: number): Promise<YardState> {
 export async function reset(): Promise<YardState> {
   return locked(async () => {
     const seed = buildSeed();
+    const tz = seed.settings?.timezone || "Asia/Kolkata";
+    seed.lastResetDate = getTodayString(tz);
     await ensureDir();
     await writeLedger(seed);
     const activity = buildSeedActivity(seed.tickets);
