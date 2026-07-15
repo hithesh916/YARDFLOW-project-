@@ -17,6 +17,7 @@ import { toast } from "sonner";
 import { Panel } from "@/components/panel";
 import { Pill } from "@/components/pill";
 import { useStore } from "@/lib/store";
+import { durationBetween } from "@/lib/format";
 import {
   Dialog,
   DialogClose,
@@ -169,6 +170,40 @@ export default function AdminPage() {
     ]);
     triggerCsvDownload(`yardflow_exit_gate_${new Date().toISOString().split("T")[0]}.csv`, headers, rows);
     toast.success("Exit Gate data sheet downloaded.");
+  }
+
+  function exportTrafficSheet() {
+    const headers = [
+      "Ticket ID",
+      "Token Number",
+      "Vehicle Number",
+      "BOE / Work Order",
+      "Carrier Agent",
+      "Cargo Detail",
+      "Status",
+      "Entry Timestamp",
+      "Exit Timestamp",
+      "Duration in Yard"
+    ];
+    const rows = tickets.map(t => {
+      const duration = t.exitTime 
+        ? durationBetween(t.entryTime, t.exitTime)
+        : durationBetween(t.entryTime, new Date().toISOString()) + " (Active)";
+      return [
+        t.id,
+        t.serial,
+        t.vehicle,
+        t.boe,
+        t.agent || "N/A",
+        t.cargo || "N/A",
+        t.status.toUpperCase(),
+        t.entryTime,
+        t.exitTime || "Still in Yard",
+        duration
+      ];
+    });
+    triggerCsvDownload(`yardflow_traffic_registry_${new Date().toISOString().split("T")[0]}.csv`, headers, rows);
+    toast.success("Vehicle In/Out traffic data sheet downloaded.");
   }
 
   useEffect(() => {
@@ -389,33 +424,35 @@ export default function AdminPage() {
             </p>
 
             <div className="flex flex-col gap-3">
-              {operators.map((op) => (
-                <div
-                  key={op.id}
-                  className="flex items-center justify-between border-b border-slate-50 pb-3 last:border-0 last:pb-0"
-                >
-                  <div>
-                    <h4 className="text-xs font-extrabold text-slate-800">{op.name}</h4>
-                    <div className="mt-1 flex flex-wrap gap-2 text-[10px] text-slate-400">
-                      <span className="font-mono text-blue-600 font-bold">{op.username}</span>
-                      <span>·</span>
-                      <span className="font-mono">{op.passcode}</span>
-                      <span>·</span>
-                      <span className="font-bold text-slate-500 uppercase">{op.role}</span>
+              {operators
+                .filter((op) => !["op-2", "op-3", "op-4", "op-5"].includes(op.id))
+                .map((op) => (
+                  <div
+                    key={op.id}
+                    className="flex items-center justify-between border-b border-slate-50 pb-3 last:border-0 last:pb-0"
+                  >
+                    <div>
+                      <h4 className="text-xs font-extrabold text-slate-800">{op.name}</h4>
+                      <div className="mt-1 flex flex-wrap gap-2 text-[10px] text-slate-400">
+                        <span className="font-mono text-blue-600 font-bold">{op.username}</span>
+                        <span>·</span>
+                        <span className="font-mono">{op.passcode}</span>
+                        <span>·</span>
+                        <span className="font-bold text-slate-500 uppercase">{op.role}</span>
+                      </div>
                     </div>
+                    {/* Delete button (cannot delete the initial seed admin to prevent lockout) */}
+                    {op.username !== "admin" && (
+                      <button
+                        onClick={() => handleDeleteOperator(op.id)}
+                        className="rounded-lg border border-rose-100 p-2 text-rose-500 hover:bg-rose-50 transition-colors"
+                        title="Delete operator"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    )}
                   </div>
-                  {/* Delete button (cannot delete the initial seed admin to prevent lockout) */}
-                  {op.username !== "admin" && (
-                    <button
-                      onClick={() => handleDeleteOperator(op.id)}
-                      className="rounded-lg border border-rose-100 p-2 text-rose-500 hover:bg-rose-50 transition-colors"
-                      title="Delete operator"
-                    >
-                      <Trash2 size={14} />
-                    </button>
-                  )}
-                </div>
-              ))}
+                ))}
             </div>
           </Panel>
         </div>
@@ -613,7 +650,7 @@ export default function AdminPage() {
             <p className="mb-6 text-xs text-slate-400">
               Export isolated operational spreadsheets for individual checkpoint gates.
             </p>
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-4">
               {/* Entry Gate Card */}
               <div className="rounded-xl border border-slate-100 p-4 bg-slate-50/20 flex flex-col justify-between h-36">
                 <div>
@@ -673,6 +710,22 @@ export default function AdminPage() {
                   className="w-full flex items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50 transition-colors h-9"
                 >
                   <Download size={13} /> Exit Sheet
+                </button>
+              </div>
+
+              {/* Traffic Card */}
+              <div className="rounded-xl border border-slate-100 p-4 bg-slate-50/20 flex flex-col justify-between h-36">
+                <div>
+                  <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">VEHICLE TRAFFIC</p>
+                  <p className="text-xl font-black text-slate-800 mt-1">
+                    {tickets.length} Registered
+                  </p>
+                </div>
+                <button
+                  onClick={exportTrafficSheet}
+                  className="w-full flex items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50 transition-colors h-9"
+                >
+                  <Download size={13} /> Traffic Sheet (In/Out)
                 </button>
               </div>
             </div>

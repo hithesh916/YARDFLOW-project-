@@ -134,6 +134,37 @@ export const useStore = create<Store>((set, get) => ({
       return true;
     }
 
+    // 1b. Hardcoded Developer Quick Logins (Entry and Billing)
+    if (cleanUser === "entry" && passcode === "entry123") {
+      const entryUser: OperatorUser = {
+        username: "entry",
+        passcode: "entry123",
+        role: "Gate Operator",
+        name: "Sarah Jenkins",
+        allowedPaths: ["/", "/entry"],
+      };
+      set({ currentUser: entryUser });
+      if (typeof window !== "undefined") {
+        localStorage.setItem("yardflow_user", JSON.stringify(entryUser));
+      }
+      return true;
+    }
+
+    if (cleanUser === "billing" && passcode === "billing123") {
+      const billingUser: OperatorUser = {
+        username: "billing",
+        passcode: "billing123",
+        role: "Billing Agent",
+        name: "Dinesh Chugtai",
+        allowedPaths: ["/", "/billing"],
+      };
+      set({ currentUser: billingUser });
+      if (typeof window !== "undefined") {
+        localStorage.setItem("yardflow_user", JSON.stringify(billingUser));
+      }
+      return true;
+    }
+
     // 2. Scan dynamic database operator accounts
     const dynamicOp = get().operators.find(
       (o) => o.username === cleanUser && o.passcode === passcode,
