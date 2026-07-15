@@ -7,6 +7,8 @@ import { Panel } from "@/components/panel";
 import { useStore } from "@/lib/store";
 import { fmtDate, fmtTime, getLocalDateString } from "@/lib/format";
 import { printToken } from "@/lib/print-token";
+import { ChevronDown, ChevronUp } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
 
 export default function EntryPage() {
   const tickets = useStore((s) => s.tickets);
@@ -21,6 +23,7 @@ export default function EntryPage() {
   const [agent, setAgent] = useState("");
   const [remarks, setRemarks] = useState("");
   const [busy, setBusy] = useState(false);
+  const [entriesExpanded, setEntriesExpanded] = useState(false);
 
   const recent = [...tickets]
     .filter((t) => getLocalDateString(t.entryTime, tz) === todayStr)
@@ -156,9 +159,6 @@ export default function EntryPage() {
               TOKEN NO: G-{String(lastToken.serial).padStart(3, "0")}
             </div>
           )}
-          <div className="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-lg bg-slate-900 text-[13px] font-extrabold text-white">
-            YF
-          </div>
           <p className="font-extrabold leading-tight text-slate-900">
             YARDFLOW MANAGER
           </p>
@@ -191,51 +191,79 @@ export default function EntryPage() {
           <Printer size={16} /> Print Token
         </button>
       </Panel>
-
-      {/* Recent entries */}
-      <Panel className="p-6 lg:col-span-2">
-        <div className="mb-4 flex items-center justify-between">
-          <h3 className="text-[13px] font-extrabold tracking-wide text-slate-800">
+      <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm lg:col-span-2">
+        {/* Header Row */}
+        <div className="flex items-center justify-between">
+          <span className="flex items-center gap-2 text-[13px] font-bold text-slate-700">
+            <Truck size={16} className="text-slate-500" />
             RECENT GATE ENTRIES
-          </h3>
+          </span>
+          <button
+            onClick={() => setEntriesExpanded(!entriesExpanded)}
+            className="flex h-7 w-7 items-center justify-center rounded-md hover:bg-slate-100 text-slate-500 cursor-pointer active:scale-95 transition-all"
+          >
+            {entriesExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+          </button>
         </div>
-        {recent.length === 0 ? (
-          <p className="py-3 text-sm text-slate-400">No entries yet today.</p>
-        ) : (
-          <div>
-            {recent.map((t) => (
-              <div
-                key={t.id}
-                className="flex items-center justify-between border-b border-slate-100 py-3 text-sm last:border-b-0"
+
+        {/* Inline List Container */}
+        <motion.div 
+          layout
+          className={`mt-3 flex flex-col gap-2 no-scrollbar ${entriesExpanded ? "max-h-[260px] overflow-y-auto pr-1" : ""}`}
+        >
+          <AnimatePresence initial={false}>
+            {recent.length === 0 ? (
+              <motion.p 
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="text-xs text-slate-400 py-2 text-center"
               >
-                <div className="flex items-center gap-3">
-                  <div className="flex h-8 w-8 items-center justify-center rounded-full bg-blue-50 text-blue-600">
-                    <Truck size={14} />
+                No entries today.
+              </motion.p>
+            ) : (
+              (entriesExpanded ? recent : recent.slice(0, 2)).map((t) => (
+                <motion.div
+                  layout
+                  initial={{ opacity: 0, y: -4 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -4 }}
+                  transition={{ duration: 0.15 }}
+                  key={t.id}
+                  className="flex items-center justify-between rounded-lg border border-slate-100 bg-slate-50/50 p-2.5 text-xs transition-colors hover:border-slate-350"
+                >
+                  <div className="flex flex-col items-start">
+                    <span className="font-extrabold text-[12px] text-slate-800">{t.vehicle}</span>
+                    <span className="text-[10px] text-slate-400">BoE: {t.boe}</span>
                   </div>
-                  <div>
-                    <p className="font-bold text-slate-800">{t.vehicle}</p>
-                    <p className="mt-px text-xs text-slate-400">
-                      {t.boe} · {t.agent}
-                    </p>
+                  <div className="flex items-center gap-3">
+                    <div className="text-right">
+                      <span className="text-[10px] font-extrabold text-slate-500 block">
+                        G-{String(t.serial).padStart(3, "0")}
+                      </span>
+                      <span className="text-[9px] text-slate-400 block mt-0.5">
+                        {fmtTime(t.entryTime)}
+                      </span>
+                    </div>
+                    <button
+                      onClick={() => printToken(t)}
+                      className="flex items-center gap-1 rounded bg-slate-900 px-2.5 py-1 text-[10px] font-bold text-white shadow-sm hover:bg-slate-850 active:scale-95 transition-all cursor-pointer"
+                    >
+                      <Printer size={10} /> PRINT
+                    </button>
                   </div>
-                </div>
-                <div className="flex items-center gap-3">
-                  <span className="text-xs text-slate-400 font-medium">
-                    {fmtTime(t.entryTime)}
-                  </span>
-                  <button
-                    onClick={() => printToken(t)}
-                    className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:text-blue-600 active:scale-95 transition-all shadow-sm cursor-pointer"
-                    title="Reprint Gate Token"
-                  >
-                    <Printer size={13} />
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </Panel>
+                </motion.div>
+              ))
+            )}
+          </AnimatePresence>
+          
+          {entriesExpanded && recent.length > 4 && (
+            <p className="text-center text-[9px] font-bold text-slate-400 mt-1 uppercase tracking-wider">
+              Scroll to view more
+            </p>
+          )}
+        </motion.div>
+      </div>
     </div>
   );
 }

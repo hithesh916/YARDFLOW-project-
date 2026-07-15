@@ -77,9 +77,7 @@ export async function printToken(ticket: Ticket): Promise<void> {
 <body>
   <div class="ticket">
     <div class="brand">
-      <div class="logo">YF</div>
       <p class="name">YARDFLOW MANAGER</p>
-      <p class="sub">Logistics Terminal A-1</p>
     </div>
     <div class="token-badge">
       <span>TOKEN NO: G-${String(ticket.serial).padStart(3, "0")}</span>
@@ -95,7 +93,7 @@ export async function printToken(ticket: Ticket): Promise<void> {
     </div>
     <div class="divider"></div>
     <p class="valid">VALID FOR TODAY ONLY</p>
-    <p class="note">Present this slip at Billing, Loading and Exit gates.</p>
+    <p class="note">Present this slip at Billing.</p>
     <div class="foot">Product by Cubiqlab Technologies</div>
   </div>
   <script>
@@ -235,7 +233,6 @@ export async function printBillingToken(ticket: Ticket): Promise<void> {
 <body>
   <div class="ticket">
     <div class="brand">
-      <div class="logo">YF</div>
       <p class="name">YARDFLOW MANAGER</p>
     </div>
     <div class="token-badge">
@@ -257,7 +254,7 @@ export async function printBillingToken(ticket: Ticket): Promise<void> {
     </div>
     
     <p class="valid">VALID FOR TODAY ONLY</p>
-    <p class="note">Present this slip at Loading and Exit gates.</p>
+    <p class="note">Present this slip at Loading.</p>
     <div class="foot">Product by Cubiqlab Technologies</div>
   </div>
   <script>
@@ -308,7 +305,7 @@ export async function printLoadingToken(ticket: Ticket): Promise<void> {
   const qr = await QRCode.toDataURL(ticket.vehicle, {
     width: 240,
     margin: 0,
-    color: { dark: "#0f172a", light: "#ffffff" },
+    color: { dark: "#000000", light: "#ffffff" },
   });
 
   const row = (k: string, v: string) =>
@@ -392,7 +389,6 @@ export async function printLoadingToken(ticket: Ticket): Promise<void> {
 <body>
   <div class="ticket">
     <div class="brand">
-      <div class="logo">YF</div>
       <p class="name">YARDFLOW MANAGER</p>
       <p class="sub">Logistics Terminal A-1</p>
     </div>

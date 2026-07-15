@@ -364,9 +364,6 @@ export default function ExitPage() {
                 TOKEN NO: E-{String(selected.loadingSerial ?? selected.serial).padStart(3, "0")}
               </div>
             )}
-            <div className="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-lg bg-slate-900 text-[13px] font-extrabold text-white">
-              YF
-            </div>
             <p className="font-extrabold leading-tight text-slate-900">
               YARDFLOW SYSTEMS
             </p>
