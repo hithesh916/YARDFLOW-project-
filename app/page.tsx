@@ -171,12 +171,21 @@ export default function DashboardPage() {
             </span>
           </div>
         </div>
-        <div className="relative flex items-start justify-between px-6">
-          <div className="absolute left-6 right-6 top-[27px] h-1 rounded-full bg-slate-100" />
+        <div className="relative flex flex-col md:flex-row items-start md:items-start justify-between gap-8 md:gap-0 px-6 py-4 md:py-0">
+          {/* Desktop horizontal connection line */}
+          <div className="hidden md:block absolute left-6 right-6 top-[27px] h-1 rounded-full bg-slate-100" />
           <div
-            className="absolute left-6 top-[27px] h-1 rounded-full bg-blue-600 transition-all duration-500"
+            className="hidden md:block absolute left-6 top-[27px] h-1 rounded-full bg-blue-600 transition-all duration-500"
             style={{ width: `${flowPct}%` }}
           />
+
+          {/* Mobile vertical connection line */}
+          <div className="md:hidden absolute top-6 bottom-6 left-[52px] w-1 rounded-full bg-slate-100" />
+          <div
+            className="md:hidden absolute top-6 left-[52px] w-1 rounded-full bg-blue-600 transition-all duration-500"
+            style={{ height: `${flowPct}%` }}
+          />
+
           <FlowStage
             tone={pendingBilling > 0 ? "active" : "dim"}
             icon={<ReceiptText size={22} />}
@@ -300,10 +309,10 @@ function FlowStage({
   l2: string;
 }) {
   return (
-    <div className="relative z-[1] flex flex-1 flex-col items-center gap-3">
+    <div className="relative z-[1] flex flex-row md:flex-col items-center md:items-center gap-4 md:gap-3 w-full md:w-auto">
       <div
         className={cn(
-          "flex h-14 w-14 items-center justify-center rounded-[14px]",
+          "flex h-14 w-14 shrink-0 items-center justify-center rounded-[14px] z-[2]",
           tone === "active" && "bg-blue-600 text-white",
           tone === "mid" && "border border-slate-300 bg-white text-slate-700",
           tone === "dim" && "bg-slate-100 text-slate-400",
@@ -311,7 +320,7 @@ function FlowStage({
       >
         {icon}
       </div>
-      <div className="rounded-lg border border-slate-200 px-4 py-2 text-center">
+      <div className="rounded-lg border border-slate-200 px-4 py-2 text-left md:text-center flex-1 md:flex-none">
         <div className="text-xs font-extrabold tracking-wide text-slate-700">
           {l1}
         </div>

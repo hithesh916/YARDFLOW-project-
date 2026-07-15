@@ -144,17 +144,17 @@ export default function LoadingPage() {
             {scanned ? "Re-scan" : "Simulate Scan"}
           </button>
         </div>
-        <div className="flex gap-4">
+        <div className="flex flex-col sm:flex-row gap-3">
           <button
             onClick={completeLoading}
             disabled={!scanned}
-            className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-slate-800 py-4 text-sm font-extrabold text-white disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400"
+            className="flex w-full sm:flex-1 items-center justify-center gap-2 rounded-lg bg-slate-800 py-4 text-sm font-extrabold text-white disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400 text-center"
           >
             <CheckCircle2 size={18} /> Mark Loading Completed
           </button>
           <button
             onClick={skip}
-            className="flex items-center gap-2 rounded-lg border-2 border-red-100 bg-white px-6 text-sm font-extrabold text-red-600 transition-colors hover:bg-red-100"
+            className="flex w-full sm:w-auto items-center justify-center gap-2 rounded-lg border-2 border-red-100 bg-white px-6 py-4 text-sm font-extrabold text-red-600 transition-colors hover:bg-red-100 text-center"
           >
             <Ban size={16} /> Skip Vehicle
           </button>

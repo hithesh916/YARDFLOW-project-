@@ -268,18 +268,18 @@ export default function BillingPage() {
 
             {/* Actions */}
             {current && (
-              <div className="flex gap-4 border-t border-slate-100 pt-5">
+              <div className="flex flex-col sm:flex-row gap-3 border-t border-slate-100 pt-5">
                 <button
                   onClick={confirm}
                   disabled={busy || (paymentStatus === "Paid" && !invoice.trim())}
-                  className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-blue-600 py-3.5 text-sm font-extrabold text-white shadow-sm transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400"
+                  className="flex w-full sm:flex-1 items-center justify-center gap-2 rounded-lg bg-blue-600 py-3.5 text-sm font-extrabold text-white shadow-sm transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400 text-center"
                 >
                   <CheckCircle2 size={18} />
                   {paymentStatus === "Paid" ? "PROCESS PAYMENT & PRINT 1 TOKEN" : "APPROVE WITHOUT PAYMENT & PRINT"}
                 </button>
                 <button
                   onClick={skip}
-                  className="rounded-lg border-2 border-slate-200 bg-white px-6 text-sm font-extrabold text-slate-600 transition-colors hover:bg-slate-50"
+                  className="w-full sm:w-auto rounded-lg border-2 border-slate-200 bg-white px-6 py-3.5 text-sm font-extrabold text-slate-600 transition-colors hover:bg-slate-50 text-center"
                 >
                   Skip to Next
                 </button>
