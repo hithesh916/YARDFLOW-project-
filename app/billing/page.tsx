@@ -9,6 +9,8 @@ import { filterBySearch, useStore } from "@/lib/store";
 import { fmtTime, fmtDate, pad, getLocalDateString } from "@/lib/format";
 import { printBillingToken } from "@/lib/print-token";
 import type { Ticket } from "@/lib/types";
+import { ChevronDown, ChevronUp } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
 
 export default function BillingPage() {
   const tickets = useStore((s) => s.tickets);
@@ -32,6 +34,7 @@ export default function BillingPage() {
   const [paymentStatus, setPaymentStatus] = useState<"Paid" | "Not Paid">("Paid");
   const [busy, setBusy] = useState(false);
   const [lastBilled, setLastBilled] = useState<Ticket | null>(null);
+  const [billedExpanded, setBilledExpanded] = useState(false);
   // Track the matched ticket from the queue (for linking to existing entries)
   const [matchedTicket, setMatchedTicket] = useState<Ticket | null>(null);
 
@@ -236,9 +239,6 @@ export default function BillingPage() {
                 TOKEN NO: B-{String((lastBilled && !boe) ? (lastBilled.billingSerial ?? lastBilled.serial) : "NEW").padStart(3, "0")}
               </div>
             )}
-            <div className="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-lg bg-slate-900 text-[13px] font-extrabold text-white">
-              YF
-            </div>
             <p className="font-extrabold leading-tight text-slate-900">
               YARDFLOW MANAGER
             </p>
@@ -282,103 +282,74 @@ export default function BillingPage() {
           </button>
         </Panel>
 
-        <Panel className="p-6">
-          <p className="mb-4 text-[11px] font-black tracking-[0.08em] text-slate-500 uppercase">
-            INBOUND QUEUE LOGS
-          </p>
-          {inboundLogs.length === 0 ? (
-            <p className="text-xs text-slate-400 py-4 text-center">Inbound queue is empty.</p>
-          ) : (
-            <div className="flex flex-col gap-3">
-              {inboundLogs.map((t) => {
-                const isPaid = t.paymentStatus === "Paid";
-                const isWaiting = t.status === "awaiting_billing";
-                return (
-                  <div
-                    key={t.id}
-                    onClick={() => isWaiting && selectFromQueue(t)}
-                    className={`flex items-center justify-between rounded-lg border border-slate-100 px-4 py-3 bg-white shadow-sm ${
-                      isWaiting
-                        ? "cursor-pointer hover:border-blue-300 hover:bg-blue-50/10 active:scale-[0.99] transition-all"
-                        : ""
-                    }`}
-                    title={isWaiting ? "Click to load details into form" : ""}
-                  >
-                    <div>
-                      <p className="text-sm font-extrabold text-slate-800">{t.vehicle}</p>
-                      <p className="mt-0.5 text-[11px] text-slate-400">
-                        BoE: {t.boe}
-                      </p>
-                    </div>
-                    <div className="text-right flex flex-col items-end gap-1">
-                      <span className="text-sm font-extrabold text-slate-600">
-                        {isWaiting
-                          ? `G-${String(t.serial).padStart(3, "0")}`
-                          : `B-${String(t.billingSerial ?? t.serial).padStart(3, "0")}`}
-                      </span>
-                      {isWaiting ? (
-                        <span className="inline-flex items-center rounded bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-500">
-                          WAITING
-                        </span>
-                      ) : (
-                        <span
-                          className={`inline-flex items-center rounded px-2 py-0.5 text-[10px] font-bold ${
-                            isPaid
-                              ? "bg-emerald-50 text-emerald-700"
-                              : "bg-rose-550 bg-red-50 text-red-700"
-                          }`}
-                        >
-                          {isPaid ? "PAID" : "UNPAID"}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </Panel>
+        <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+          {/* Header Row */}
+          <div className="flex items-center justify-between">
+            <span className="flex items-center gap-2 text-[13px] font-bold text-slate-700">
+              <ReceiptText size={16} className="text-slate-500" />
+              TODAY&apos;S BILLED
+            </span>
+            <button
+              onClick={() => setBilledExpanded(!billedExpanded)}
+              className="flex h-7 w-7 items-center justify-center rounded-md hover:bg-slate-100 text-slate-500 cursor-pointer active:scale-95 transition-all"
+            >
+              {billedExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+            </button>
+          </div>
 
-        {/* Recently Billed Log Registry */}
-        <Panel className="p-6 bg-white shadow-sm">
-          <p className="mb-4 text-[11px] font-black tracking-[0.08em] text-slate-500 uppercase">
-            TODAY&apos;S BILLED
-          </p>
-          {recentBilled.length === 0 ? (
-            <p className="text-xs text-slate-400 py-4 text-center">No bills processed today yet.</p>
-          ) : (
-            <div className="flex flex-col gap-3">
-              {recentBilled.map((t) => (
-                <div
-                  key={t.id}
-                  className="flex items-center justify-between border-b border-slate-100 pb-3 last:border-b-0 last:pb-0"
+          {/* Inline List Container */}
+          <motion.div 
+            layout
+            className={`mt-3 flex flex-col gap-2 no-scrollbar ${billedExpanded ? "max-h-[260px] overflow-y-auto pr-1" : ""}`}
+          >
+            <AnimatePresence initial={false}>
+              {recentBilled.length === 0 ? (
+                <motion.p 
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  className="text-xs text-slate-400 py-2 text-center"
                 >
-                  <div className="flex items-center gap-3">
-                    <button
-                      onClick={() => printBillingToken(t)}
-                      className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:text-blue-600 active:scale-95 transition-all shadow-sm cursor-pointer"
-                      title="Reprint Billing Pass"
-                    >
-                      <Printer size={13} />
-                    </button>
-                    <div>
-                      <p className="text-xs font-bold text-slate-800">{t.vehicle}</p>
-                      <p className="text-[10px] text-slate-400 mt-0.5">Inv: {t.invoice}</p>
+                  No bills processed today.
+                </motion.p>
+              ) : (
+                (billedExpanded ? recentBilled : recentBilled.slice(0, 2)).map((t) => (
+                  <motion.div
+                    layout
+                    initial={{ opacity: 0, y: -4 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -4 }}
+                    transition={{ duration: 0.15 }}
+                    key={t.id}
+                    className="flex items-center justify-between rounded-lg border border-slate-100 bg-slate-50/50 p-2.5 text-xs transition-colors hover:border-slate-350"
+                  >
+                    <div className="flex flex-col items-start">
+                      <span className="font-extrabold text-[12px] text-slate-800">{t.vehicle}</span>
+                      <span className="text-[10px] text-slate-400">Inv: {t.invoice || "N/A"}</span>
                     </div>
-                  </div>
-                  <div className="text-right">
-                    <span className="text-[10px] font-bold text-slate-500 block">
-                      B-{String(t.billingSerial ?? t.serial).padStart(3, "0")}
-                    </span>
-                    <span className="inline-flex items-center rounded bg-emerald-50 px-1.5 py-0.5 text-[9px] font-bold text-emerald-700 mt-0.5">
-                      {t.paymentStatus?.toUpperCase() || "PAID"}
-                    </span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </Panel>
+                    <div className="flex items-center gap-3">
+                      <span className="text-[10px] font-extrabold text-slate-500">
+                        B-{String(t.billingSerial ?? t.serial).padStart(3, "0")}
+                      </span>
+                      <button
+                        onClick={() => printBillingToken(t)}
+                        className="flex items-center gap-1 rounded bg-slate-900 px-2.5 py-1 text-[10px] font-bold text-white shadow-sm hover:bg-slate-850 active:scale-95 transition-all cursor-pointer"
+                      >
+                        <Printer size={10} /> PRINT
+                      </button>
+                    </div>
+                  </motion.div>
+                ))
+              )}
+            </AnimatePresence>
+            
+            {billedExpanded && recentBilled.length > 4 && (
+              <p className="text-center text-[9px] font-bold text-slate-400 mt-1 uppercase tracking-wider">
+                Scroll to view more
+              </p>
+            )}
+          </motion.div>
+        </div>
 
         <div className="rounded-xl bg-slate-900 p-5 text-white">
           <p className="mb-2 text-[11px] font-extrabold tracking-[0.06em]">
