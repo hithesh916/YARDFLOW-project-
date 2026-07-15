@@ -292,6 +292,7 @@ export async function createTicket(input: {
   agent?: string;
   cargo?: string;
   remarks?: string;
+  createdSource?: "entry" | "billing";
 }): Promise<{ state: YardState; ticket: Ticket | null }> {
   let created: Ticket | null = null;
   const state = await mutate((l, log) => {
@@ -331,6 +332,7 @@ export async function createTicket(input: {
       exitTime: null,
       holdReason: null,
       paymentStatus: "Not Paid",
+      createdSource: input.createdSource || "entry",
     };
     l.tickets.push(t);
     created = t;
@@ -396,10 +398,11 @@ export function completeBilling(
       t.status = "awaiting_loading";
       t.invoice = invoice.trim() || null;
       t.paymentStatus = paymentStatus || "Paid";
+      t.billingTime = new Date().toISOString();
+      t.billingAgent = extra?.agent ? extra.agent.trim() : t.agent;
+      t.billingRemarks = extra?.remarks ? extra.remarks.trim() : "";
       if (extra?.boe) t.boe = extra.boe;
-      if (extra?.agent) t.agent = extra.agent;
       if (extra?.cargo) t.cargo = extra.cargo;
-      if (extra?.remarks) t.remarks = extra.remarks;
       log({
         action: "billing_complete",
         ticketId: t.id,

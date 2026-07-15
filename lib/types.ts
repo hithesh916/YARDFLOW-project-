@@ -26,6 +26,10 @@ export interface Ticket {
   exitTime: string | null;
   holdReason: string | null;
   paymentStatus?: "Paid" | "Not Paid" | null;
+  createdSource?: "entry" | "billing" | null;
+  billingAgent?: string | null;
+  billingRemarks?: string | null;
+  billingTime?: string | null;
 }
 
 export interface Alert {

@@ -19,6 +19,7 @@ export async function POST(req: Request) {
     agent: body.agent,
     cargo: body.cargo,
     remarks: body.remarks,
+    createdSource: body.createdSource,
   });
   return NextResponse.json({ state, ticket });
 }

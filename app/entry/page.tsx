@@ -26,7 +26,11 @@ export default function EntryPage() {
   const [entriesExpanded, setEntriesExpanded] = useState(false);
 
   const recent = [...tickets]
-    .filter((t) => getLocalDateString(t.entryTime, tz) === todayStr)
+    .filter(
+      (t) =>
+        getLocalDateString(t.entryTime, tz) === todayStr &&
+        t.createdSource !== "billing",
+    )
     .sort((a, b) => b.entryTime.localeCompare(a.entryTime));
 
   const isEditing = vehicle.trim() !== "" || boe.trim() !== "" || agent.trim() !== "" || remarks.trim() !== "";

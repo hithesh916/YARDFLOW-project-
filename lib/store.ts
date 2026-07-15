@@ -47,6 +47,7 @@ interface Store {
     agent?: string;
     cargo?: string;
     remarks?: string;
+    createdSource?: "entry" | "billing";
   }) => Promise<Ticket | null>;
   ticketAction: (
     id: string,

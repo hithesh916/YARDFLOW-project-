@@ -95,6 +95,7 @@ export default function BillingPage() {
         boe: b,
         agent: agent.trim() || undefined,
         remarks: remarks.trim() || "Created directly at Billing Desk",
+        createdSource: "billing",
       });
       if (!created) {
         setBusy(false);
@@ -247,12 +248,15 @@ export default function BillingPage() {
             </p>
             <div className="my-3 border-t border-dashed border-slate-200" />
             <div className="mb-4 flex flex-col gap-1.5 text-left text-xs">
-              <TokenRow k="VEHICLE:" v={matchedTicket?.vehicle || lastBilled?.vehicle || "—"} />
               <TokenRow k="BOE NO:" v={boe || lastBilled?.boe || "—"} />
+              <TokenRow k="AGENT / CHA:" v={agent || lastBilled?.billingAgent || lastBilled?.agent || "—"} />
               <TokenRow 
                 k="INVOICE NO:" 
                 v={invoice || lastBilled?.invoice || "—"} 
               />
+              {(remarks || lastBilled?.billingRemarks) && (
+                <TokenRow k="REMARKS:" v={remarks || lastBilled?.billingRemarks || "—"} />
+              )}
               <TokenRow
                 k="TIME:"
                 v={boe ? fmtTime(new Date().toISOString()) : (lastBilled ? fmtTime(lastBilled.entryTime) : "—")}
@@ -324,8 +328,8 @@ export default function BillingPage() {
                     className="flex items-center justify-between rounded-lg border border-slate-100 bg-slate-50/50 p-2.5 text-xs transition-colors hover:border-slate-350"
                   >
                     <div className="flex flex-col items-start">
-                      <span className="font-extrabold text-[12px] text-slate-800">{t.vehicle}</span>
-                      <span className="text-[10px] text-slate-400">Inv: {t.invoice || "N/A"}</span>
+                      <span className="font-extrabold text-[12px] text-slate-800">{t.boe}</span>
+                      <span className="text-[10px] text-slate-400">Inv: {t.invoice || "N/A"} · {t.billingAgent || t.agent}</span>
                     </div>
                     <div className="flex items-center gap-3">
                       <span className="text-[10px] font-extrabold text-slate-500">
