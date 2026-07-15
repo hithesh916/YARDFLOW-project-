@@ -4,6 +4,7 @@ export interface OperatorUser {
   role: string;
   name: string;
   allowedPaths: string[];
+  isFirstLogin?: boolean;
 }
 
 export const OPERATOR_ACCOUNTS: OperatorUser[] = [

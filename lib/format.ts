@@ -47,3 +47,32 @@ export function durationBetween(startIso: string, endIso: string): string {
   const m = mins % 60;
   return h > 0 ? `${h}h ${m}m` : `${m}m`;
 }
+
+/** Formats a date or ISO string to robust YYYY-MM-DD in the target timezone. */
+export function getLocalDateString(isoOrDate: string | Date, timeZone: string = "Asia/Kolkata"): string {
+  try {
+    const d = typeof isoOrDate === "string" ? new Date(isoOrDate) : isoOrDate;
+    if (isNaN(d.getTime())) {
+      throw new Error("Invalid Date");
+    }
+    const formatter = new Intl.DateTimeFormat("en-US", {
+      timeZone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    });
+    const parts = formatter.formatToParts(d);
+    const year = parts.find((p) => p.type === "year")?.value;
+    const month = parts.find((p) => p.type === "month")?.value;
+    const day = parts.find((p) => p.type === "day")?.value;
+    if (year && month && day) {
+      return `${year}-${month}-${day}`;
+    }
+    throw new Error("Fallback to ISO split");
+  } catch {
+    const d = typeof isoOrDate === "string" ? new Date(isoOrDate) : isoOrDate;
+    const offset = d.getTimezoneOffset();
+    const local = new Date(d.getTime() - offset * 60 * 1000);
+    return local.toISOString().split("T")[0];
+  }
+}

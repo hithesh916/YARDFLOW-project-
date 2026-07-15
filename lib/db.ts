@@ -97,11 +97,23 @@ const DEFAULT_SETTINGS = {
 let memoryLedger: Ledger | null = null;
 let memoryActivity: ActivityEntry[] | null = null;
 
-function getTodayString(timezone: string = "Asia/Kolkata"): string {
+function getTodayString(timezone: string = "Asia/Kolkata", dateInput?: Date | string): string {
   try {
-    return new Date().toLocaleDateString("sv-SE", { timeZone: timezone });
+    const d = dateInput ? (typeof dateInput === "string" ? new Date(dateInput) : dateInput) : new Date();
+    const formatter = new Intl.DateTimeFormat("en-US", {
+      timeZone: timezone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    });
+    const parts = formatter.formatToParts(d);
+    const y = parts.find((p) => p.type === "year")?.value;
+    const m = parts.find((p) => p.type === "month")?.value;
+    const day = parts.find((p) => p.type === "day")?.value;
+    return `${y}-${m}-${day}`;
   } catch {
-    return new Date().toISOString().split("T")[0];
+    const d = dateInput ? (typeof dateInput === "string" ? new Date(dateInput) : dateInput) : new Date();
+    return d.toISOString().split("T")[0];
   }
 }
 
@@ -120,6 +132,8 @@ async function checkAndTriggerDailyReset(l: Ledger) {
     l.tickets = [];
     l.alerts = [];
     l.counters.serial = 0;
+    l.counters.billingSerial = 0;
+    l.counters.loadingSerial = 0;
     l.lastResetDate = todayStr;
     await writeLedger(l);
     
@@ -142,10 +156,6 @@ async function checkAndTriggerDailyReset(l: Ledger) {
 }
 
 async function readLedger(): Promise<Ledger> {
-  if (memoryLedger) {
-    await checkAndTriggerDailyReset(memoryLedger);
-    return memoryLedger;
-  }
   try {
     const content = await fs.readFile(LEDGER_FILE, "utf8");
     const l = JSON.parse(content) as Ledger;
@@ -162,10 +172,17 @@ async function readLedger(): Promise<Ledger> {
     if (!l.permissions) {
       l.permissions = seed.permissions;
     }
+    // Initialize missing counters for backwards compatibility
+    if (l.counters.billingSerial === undefined) l.counters.billingSerial = 0;
+    if (l.counters.loadingSerial === undefined) l.counters.loadingSerial = 0;
     memoryLedger = l;
     await checkAndTriggerDailyReset(l);
     return l;
-  } catch {
+  } catch (err) {
+    if (memoryLedger) {
+      await checkAndTriggerDailyReset(memoryLedger);
+      return memoryLedger;
+    }
     const seed = buildSeed();
     const tz = seed.settings?.timezone || "Asia/Kolkata";
     seed.lastResetDate = getTodayString(tz);
@@ -191,15 +208,15 @@ async function writeLedger(l: Ledger) {
 }
 
 async function readActivity(): Promise<ActivityEntry[]> {
-  if (memoryActivity) {
-    return memoryActivity;
-  }
   try {
     const content = await fs.readFile(ACTIVITY_FILE, "utf8");
     const acts = JSON.parse(content) as ActivityEntry[];
     memoryActivity = acts;
     return acts;
   } catch {
+    if (memoryActivity) {
+      return memoryActivity;
+    }
     const defaultActs = memoryLedger ? buildSeedActivity(memoryLedger.tickets) : [];
     memoryActivity = defaultActs;
     try {
@@ -273,18 +290,18 @@ export async function createTicket(input: {
   vehicle: string;
   boe?: string;
   agent?: string;
+  cargo?: string;
   remarks?: string;
 }): Promise<{ state: YardState; ticket: Ticket | null }> {
   let created: Ticket | null = null;
   const state = await mutate((l, log) => {
     const timezone = l.settings?.timezone || "Asia/Kolkata";
     const now = new Date();
-    const todayStr = now.toLocaleDateString("sv-SE", { timeZone: timezone });
+    const todayStr = getTodayString(timezone, now);
 
     const todaySerials = l.tickets
       .filter((t) => {
-        const ticketDate = new Date(t.entryTime);
-        return ticketDate.toLocaleDateString("sv-SE", { timeZone: timezone }) === todayStr;
+        return getTodayString(timezone, t.entryTime) === todayStr;
       })
       .map((t) => t.serial);
 
@@ -304,7 +321,7 @@ export async function createTicket(input: {
       vehicle: input.vehicle.trim().toUpperCase(),
       boe: input.boe?.trim() || `BOE-${Math.floor(10000 + Math.random() * 90000)}`,
       agent: input.agent?.trim() || "Unassigned",
-      cargo: pick(CARGO),
+      cargo: input.cargo?.trim() || pick(CARGO),
       status: "awaiting_billing",
       bay: pick(BAYS),
       remarks: input.remarks?.trim() || undefined,
@@ -332,6 +349,9 @@ export function completeLoading(id: string): Promise<YardState> {
   return mutate((l, log) => {
     const t = find(l, id);
     if (t && t.status === "awaiting_loading") {
+      if (l.counters.loadingSerial === undefined) l.counters.loadingSerial = 0;
+      l.counters.loadingSerial += 1;
+      t.loadingSerial = l.counters.loadingSerial;
       t.status = "awaiting_exit";
       t.loadingEnd = new Date().toISOString();
       log({
@@ -361,19 +381,31 @@ export function skipLoading(id: string): Promise<YardState> {
   });
 }
 
-export function completeBilling(id: string, invoice: string, paymentStatus?: "Paid" | "Not Paid"): Promise<YardState> {
+export function completeBilling(
+  id: string,
+  invoice: string,
+  paymentStatus?: "Paid" | "Not Paid",
+  extra?: { boe?: string; agent?: string; cargo?: string; remarks?: string },
+): Promise<YardState> {
   return mutate((l, log) => {
     const t = find(l, id);
-    if (t && t.status === "awaiting_billing" && invoice.trim()) {
+    if (t && t.status === "awaiting_billing") {
+      if (l.counters.billingSerial === undefined) l.counters.billingSerial = 0;
+      l.counters.billingSerial += 1;
+      t.billingSerial = l.counters.billingSerial;
       t.status = "awaiting_loading";
-      t.invoice = invoice.trim();
+      t.invoice = invoice.trim() || null;
       t.paymentStatus = paymentStatus || "Paid";
+      if (extra?.boe) t.boe = extra.boe;
+      if (extra?.agent) t.agent = extra.agent;
+      if (extra?.cargo) t.cargo = extra.cargo;
+      if (extra?.remarks) t.remarks = extra.remarks;
       log({
         action: "billing_complete",
         ticketId: t.id,
         serial: t.serial,
         vehicle: t.vehicle,
-        detail: t.invoice,
+        detail: t.invoice || "No invoice",
       });
     }
   });
@@ -545,14 +577,20 @@ export async function createOperator(input: {
   role: string;
 }): Promise<YardState> {
   return mutate((l, log) => {
+    l.operators = l.operators || [];
+    const seatLimit = l.tenants?.[0]?.seats || 5;
+    if (l.operators.length >= seatLimit) {
+      throw new Error(`Operator seat limit reached (${seatLimit}). Upgrade your license.`);
+    }
+
     const newOp = {
       id: `op-${Date.now()}`,
       name: input.name,
       username: input.username.trim().toLowerCase(),
       passcode: input.passcode,
       role: input.role,
+      isFirstLogin: true,
     };
-    l.operators = l.operators || [];
     if (!l.operators.some((o) => o.username === newOp.username)) {
       l.operators.push(newOp);
       log({ action: "reset", detail: `Registered operator: ${input.name} (${input.role})` });
@@ -566,6 +604,17 @@ export async function deleteOperator(id: string): Promise<YardState> {
     if (op) {
       l.operators = l.operators.filter((x) => x.id !== id);
       log({ action: "reset", detail: `Removed operator: ${op.name}` });
+    }
+  });
+}
+
+export async function changeOperatorPassword(username: string, passcode: string): Promise<YardState> {
+  return mutate((l, log) => {
+    const op = l.operators?.find((o) => o.username === username.trim().toLowerCase());
+    if (op) {
+      op.passcode = passcode;
+      op.isFirstLogin = false;
+      log({ action: "reset", detail: `Updated passcode for operator: ${op.name}` });
     }
   });
 }

@@ -10,7 +10,9 @@ export type TicketStatus =
 
 export interface Ticket {
   id: string;
-  serial: number;
+  serial: number;           // G- entry gate serial
+  billingSerial?: number;   // B- billing stage serial
+  loadingSerial?: number;   // L- loading stage serial
   vehicle: string;
   boe: string;
   agent: string;
@@ -72,6 +74,7 @@ export interface OperatorAccount {
   username: string;
   passcode: string;
   role: string;
+  isFirstLogin?: boolean;
 }
 
 export interface RolePermission {
@@ -80,7 +83,9 @@ export interface RolePermission {
 }
 
 export interface Counters {
-  serial: number;
+  serial: number;         // G- gate entry counter (resets daily)
+  billingSerial: number;  // B- billing counter (resets daily)
+  loadingSerial: number;  // L- loading counter (resets daily)
   boe: number;
 }
 
@@ -88,6 +93,11 @@ export interface SystemSettings {
   terminalName: string;
   maxActiveBays: number;
   timezone: string;
+  companyName?: string;
+  companyAddress?: string;
+  companyContact?: string;
+  companyEmail?: string;
+  companyGst?: string;
 }
 
 /** Everything the client needs to render the whole app in one payload. */

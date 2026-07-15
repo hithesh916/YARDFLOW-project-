@@ -5,7 +5,7 @@ import { MapPin, Printer, Truck } from "lucide-react";
 import { toast } from "sonner";
 import { Panel } from "@/components/panel";
 import { useStore } from "@/lib/store";
-import { fmtDate, fmtTime } from "@/lib/format";
+import { fmtDate, fmtTime, getLocalDateString } from "@/lib/format";
 import { printToken } from "@/lib/print-token";
 
 export default function EntryPage() {
@@ -14,7 +14,7 @@ export default function EntryPage() {
   const createTicket = useStore((s) => s.createTicket);
   const settings = useStore((s) => s.settings);
   const tz = settings?.timezone || "Asia/Kolkata";
-  const todayStr = new Date().toLocaleDateString("sv-SE", { timeZone: tz });
+  const todayStr = getLocalDateString(new Date(), tz);
 
   const [vehicle, setVehicle] = useState("");
   const [boe, setBoe] = useState("");
@@ -22,13 +22,17 @@ export default function EntryPage() {
   const [remarks, setRemarks] = useState("");
   const [busy, setBusy] = useState(false);
 
-  const lastToken = tickets.find((t) => t.id === lastTokenId) ?? null;
   const recent = [...tickets]
-    .filter((t) => new Date(t.entryTime).toLocaleDateString("sv-SE", { timeZone: tz }) === todayStr)
+    .filter((t) => getLocalDateString(t.entryTime, tz) === todayStr)
     .sort((a, b) => b.entryTime.localeCompare(a.entryTime));
 
+  const isEditing = vehicle.trim() !== "" || boe.trim() !== "" || agent.trim() !== "" || remarks.trim() !== "";
+  const lastToken = isEditing
+    ? null
+    : (tickets.find((t) => t.id === lastTokenId) ?? recent[0] ?? null);
+
   async function generate() {
-    const v = vehicle.trim().toUpperCase();
+    const v = vehicle.trim().replace(/\s+/g, " ").toUpperCase();
     const b = boe.trim().toUpperCase();
     const a = agent.trim().replace(/[<>]/g, "").slice(0, 80);
     const r = remarks.trim().replace(/[<>]/g, "").slice(0, 500);
@@ -38,7 +42,12 @@ export default function EntryPage() {
       return;
     }
 
-    if (b && !/^[A-Z0-9][A-Z0-9-]{2,29}$/.test(b)) {
+    if (!b) {
+      toast.error("BOE Number is required.");
+      return;
+    }
+
+    if (!/^[A-Z0-9][A-Z0-9-]{2,29}$/.test(b)) {
       toast.error("Enter a valid BOE number (3–30 letters, digits or hyphens).");
       return;
     }
@@ -71,10 +80,15 @@ export default function EntryPage() {
 
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_380px]">
-      {/* Form */}
+      {/* Left Column: Form */}
       <Panel className="p-8">
+        <h2 className="mb-6 flex items-center gap-2 text-lg font-bold text-slate-800">
+          <Truck className="text-blue-600" size={20} />
+          Entry Pass Generation
+        </h2>
+
         <label className="mb-2 block text-[13px] font-bold text-slate-700">
-          Vehicle Number (Primary ID)
+          Vehicle Number (Primary ID) *
         </label>
         <input
           value={vehicle}
@@ -86,7 +100,7 @@ export default function EntryPage() {
         <div className="mb-5 grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div>
             <label className="mb-2 block text-[13px] font-bold text-slate-700">
-              BOE Number
+              BOE Number *
             </label>
             <input
               value={boe}
@@ -123,8 +137,8 @@ export default function EntryPage() {
           </p>
           <button
             onClick={generate}
-            disabled={!vehicle.trim() || busy}
-            className="rounded-lg bg-orange-500 px-6 py-3 text-sm font-bold text-white transition-colors hover:bg-orange-600 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400"
+            disabled={!vehicle.trim() || !boe.trim() || busy}
+            className="rounded-lg bg-orange-500 px-6 py-3 text-sm font-bold text-white transition-colors hover:bg-orange-600 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400 cursor-pointer"
           >
             {busy ? "Generating…" : "Generate Token"}
           </button>
@@ -139,7 +153,7 @@ export default function EntryPage() {
         <div className="rounded-xl border border-slate-200 bg-white p-6 text-center">
           {lastToken && (
             <div className="mb-3 rounded bg-blue-50 py-1.5 px-3 text-xs font-black tracking-[0.05em] text-blue-700 uppercase">
-              TOKEN NO: #{lastToken.serial}
+              TOKEN NO: G-{String(lastToken.serial).padStart(3, "0")}
             </div>
           )}
           <div className="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-lg bg-slate-900 text-[13px] font-extrabold text-white">

@@ -21,9 +21,11 @@ import {
   X,
   Sun,
   Moon,
+  Key,
   type LucideIcon,
 } from "lucide-react";
 import { useTheme } from "next-themes";
+import { toast } from "sonner";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -115,6 +117,15 @@ function ThemeToggle() {
   );
 }
 
+const ROLE_PRIMARY_PATHS: Record<string, string> = {
+  "superadmin": "/superadmin",
+  "Administrator": "/admin",
+  "Gate Operator": "/entry",
+  "Billing Agent": "/billing",
+  "Loading Operator": "/loading",
+  "Security Guard": "/exit",
+};
+
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
@@ -133,6 +144,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const unacked = alerts.filter((a) => !a.acknowledged).length;
   const [now, setNow] = useState<Date | null>(null);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [hasRedirected, setHasRedirected] = useState(false);
 
   useEffect(() => {
     hydrate().then(() => startPolling());
@@ -145,9 +157,25 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     return () => clearInterval(id);
   }, []);
 
+  useEffect(() => {
+    if (!currentUser) {
+      setHasRedirected(false);
+    }
+  }, [currentUser]);
+
   // Automatic routing redirect to default allowed page if they hit root or an unauthorized page
   useEffect(() => {
     if (ready && currentUser) {
+      // Direct redirect on first load/login if hitting root /
+      if (!hasRedirected && pathname === "/") {
+        const primaryPath = ROLE_PRIMARY_PATHS[currentUser.role];
+        if (primaryPath && currentUser.allowedPaths.includes(primaryPath)) {
+          setHasRedirected(true);
+          router.push(primaryPath);
+          return;
+        }
+      }
+
       const isAllowed = pathname === "/" || currentUser.allowedPaths.includes(pathname);
       if (!isAllowed) {
         // If current path isn't allowed, push to first allowed route
@@ -157,7 +185,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         }
       }
     }
-  }, [ready, currentUser, pathname, router]);
+  }, [ready, currentUser, pathname, router, hasRedirected]);
 
   const settings = useStore((s) => s.settings);
   const terminalName = settings?.terminalName || "Terminal A-1";
@@ -170,6 +198,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   // Render Login page if not authenticated
   if (ready && !currentUser) {
     return <Login />;
+  }
+
+  // Render Force Password Change screen if first-time login
+  if (ready && currentUser?.isFirstLogin) {
+    return <ForcePasswordChange />;
   }
 
   // Filter navigation links according to current user's permissions (Dashboard is always visible)
@@ -344,10 +377,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <Menu size={18} />
           </button>
 
+          {pathname !== "/billing" && (
           <div className="min-w-0 flex-1 sm:flex-initial">
             <h1 className="text-base sm:text-xl font-extrabold leading-tight truncate">{title}</h1>
             <p className="text-[10px] sm:text-xs text-slate-400 truncate">{subtitle}</p>
           </div>
+          )}
 
           <div className="hidden md:flex flex-1 justify-center">
             <div className="relative w-full max-w-[420px]">
@@ -453,6 +488,89 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </>
           )}
         </main>
+      </div>
+    </div>
+  );
+}
+
+function ForcePasswordChange() {
+  const currentUser = useStore((s) => s.currentUser);
+  const changePassword = useStore((s) => s.changePassword);
+  const [passcode, setPasscode] = useState("");
+  const [confirmPasscode, setConfirmPasscode] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!passcode || !confirmPasscode) {
+      toast.error("Please fill in all passcode fields.");
+      return;
+    }
+    if (passcode !== confirmPasscode) {
+      toast.error("New passcode and confirm passcode do not match.");
+      return;
+    }
+    if (passcode.length < 4) {
+      toast.error("Passcode must be at least 4 characters long.");
+      return;
+    }
+
+    setBusy(true);
+    const ok = await changePassword(currentUser!.username, passcode);
+    setBusy(false);
+    if (ok) {
+      toast.success("Security passcode updated successfully. Welcome!");
+    }
+  }
+
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-[#070b14] p-6 text-white">
+      <div className="w-full max-w-[400px] rounded-2xl border border-[#16223b] bg-[#0d1424] p-8 shadow-xl">
+        <div className="mx-auto mb-5 flex h-12 w-12 items-center justify-center rounded-xl bg-blue-900/40 text-blue-400 border border-blue-800/40">
+          <Key size={22} />
+        </div>
+        <h2 className="text-center text-xl font-extrabold tracking-tight text-white">
+          Update Security Passcode
+        </h2>
+        <p className="mt-2 text-center text-xs text-slate-400 leading-relaxed">
+          Welcome to YARDFLOW, <span className="font-bold text-white">{currentUser?.name}</span>! Since this is your first-time login, please update your temporary passcode to continue.
+        </p>
+
+        <form onSubmit={handleSubmit} className="mt-6 flex flex-col gap-4">
+          <div>
+            <label className="mb-2 block text-[10px] font-black tracking-wider text-slate-400 uppercase">
+              NEW SECURITY PASSCODE / PIN
+            </label>
+            <input
+              type="password"
+              value={passcode}
+              onChange={(e) => setPasscode(e.target.value)}
+              placeholder="e.g. 12345"
+              className="w-full rounded-lg border border-[#16223b] bg-[#070b14] py-3 px-3.5 text-sm text-white placeholder-slate-600 outline-none transition-all focus:border-blue-500 focus:ring-2 focus:ring-blue-900/40 font-mono"
+            />
+          </div>
+
+          <div>
+            <label className="mb-2 block text-[10px] font-black tracking-wider text-slate-400 uppercase">
+              CONFIRM NEW PASSCODE / PIN
+            </label>
+            <input
+              type="password"
+              value={confirmPasscode}
+              onChange={(e) => setConfirmPasscode(e.target.value)}
+              placeholder="e.g. 12345"
+              className="w-full rounded-lg border border-[#16223b] bg-[#070b14] py-3 px-3.5 text-sm text-white placeholder-slate-600 outline-none transition-all focus:border-blue-500 focus:ring-2 focus:ring-blue-900/40 font-mono"
+            />
+          </div>
+
+          <button
+            type="submit"
+            disabled={busy}
+            className="mt-2 flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 py-3 text-sm font-bold text-white hover:bg-blue-500 transition-colors disabled:opacity-40"
+          >
+            {busy ? "Updating..." : "Save and Continue"}
+          </button>
+        </form>
       </div>
     </div>
   );

@@ -22,7 +22,7 @@ export function buildSeed(): Ledger {
   return {
     tickets: [],
     alerts: [],
-    counters: { serial: 0, boe: 1000 },
+    counters: { serial: 0, billingSerial: 0, loadingSerial: 0, boe: 1000 },
     settings: {
       terminalName: "Terminal A-1",
       maxActiveBays: 20,
@@ -70,6 +70,7 @@ export function buildSeed(): Ledger {
         username: "admin",
         passcode: "admin123",
         role: "Administrator",
+        isFirstLogin: true,
       },
       {
         id: "op-2",

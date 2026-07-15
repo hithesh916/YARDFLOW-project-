@@ -17,6 +17,7 @@ export async function POST(req: Request) {
     vehicle,
     boe: body.boe || body.job,
     agent: body.agent,
+    cargo: body.cargo,
     remarks: body.remarks,
   });
   return NextResponse.json({ state, ticket });

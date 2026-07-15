@@ -31,13 +31,12 @@ export async function POST(
       break;
     case "complete-billing": {
       const invoice = typeof body.invoice === "string" ? body.invoice.trim() : "";
-      if (!invoice) {
-        return NextResponse.json(
-          { error: "Invoice number is required." },
-          { status: 400 },
-        );
-      }
-      state = await completeBilling(id, invoice, body.paymentStatus);
+      state = await completeBilling(id, invoice, body.paymentStatus, {
+        boe: typeof body.boe === "string" ? body.boe : undefined,
+        agent: typeof body.agent === "string" ? body.agent : undefined,
+        cargo: typeof body.cargo === "string" ? body.cargo : undefined,
+        remarks: typeof body.remarks === "string" ? body.remarks : undefined,
+      });
       break;
     }
     case "skip-billing":

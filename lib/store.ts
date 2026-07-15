@@ -45,6 +45,7 @@ interface Store {
     vehicle: string;
     boe?: string;
     agent?: string;
+    cargo?: string;
     remarks?: string;
   }) => Promise<Ticket | null>;
   ticketAction: (
@@ -73,6 +74,7 @@ interface Store {
   }) => Promise<boolean>;
   deleteOperator: (id: string) => Promise<boolean>;
   updatePermissions: (role: string, allowedPaths: string[]) => Promise<boolean>;
+  changePassword: (username: string, passcode: string) => Promise<boolean>;
 
   // real-time polling
   startPolling: () => void;
@@ -199,6 +201,7 @@ export const useStore = create<Store>((set, get) => ({
         role: dynamicOp.role,
         name: dynamicOp.name,
         allowedPaths,
+        isFirstLogin: dynamicOp.isFirstLogin,
       };
 
       set({ currentUser: mappedUser });
@@ -407,6 +410,34 @@ export const useStore = create<Store>((set, get) => ({
     }
   },
 
+  changePassword: async (username, passcode) => {
+    try {
+      const state = await postJson("/api/operators", {
+        action: "change-password",
+        username,
+        passcode,
+      });
+      set({ ...state });
+      
+      const current = get().currentUser;
+      if (current && current.username === username.trim().toLowerCase()) {
+        const nextUser = {
+          ...current,
+          passcode,
+          isFirstLogin: false,
+        };
+        set({ currentUser: nextUser });
+        if (typeof window !== "undefined") {
+          localStorage.setItem("yardflow_user", JSON.stringify(nextUser));
+        }
+      }
+      return true;
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Password change failed.");
+      return false;
+    }
+  },
+
   startPolling: () => {
     if (_pollTimer) return; // already polling
     _pollTimer = setInterval(async () => {
@@ -469,12 +500,12 @@ export const useStore = create<Store>((set, get) => ({
 
 /** Case-insensitive filter across vehicle / boe / serial. */
 export function filterBySearch(tickets: Ticket[], search: string): Ticket[] {
-  const q = search.trim().toLowerCase();
+  const q = search.trim().replace(/\s+/g, " ").toLowerCase();
   if (!q) return tickets;
   return tickets.filter(
     (t) =>
-      t.vehicle.toLowerCase().includes(q) ||
-      t.boe.toLowerCase().includes(q) ||
+      t.vehicle.replace(/\s+/g, " ").toLowerCase().includes(q) ||
+      t.boe.replace(/\s+/g, " ").toLowerCase().includes(q) ||
       String(t.serial).includes(q),
   );
 }
