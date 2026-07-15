@@ -140,7 +140,7 @@ export const useStore = create<Store>((set, get) => ({
         username: "entry",
         passcode: "entry123",
         role: "Gate Operator",
-        name: "Sarah Jenkins",
+        name: "Gate Operator",
         allowedPaths: ["/", "/entry"],
       };
       set({ currentUser: entryUser });
@@ -155,7 +155,7 @@ export const useStore = create<Store>((set, get) => ({
         username: "billing",
         passcode: "billing123",
         role: "Billing Agent",
-        name: "Dinesh Chugtai",
+        name: "Billing Operator",
         allowedPaths: ["/", "/billing"],
       };
       set({ currentUser: billingUser });
