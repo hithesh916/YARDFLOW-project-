@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import {
   Ban,
   CheckCircle2,
@@ -86,11 +87,37 @@ function sameDay(d1: string | null, d2: Date): boolean {
 export default function ReportsPage() {
   const tickets = useStore((s) => s.tickets);
   const activity = useStore((s) => s.activity);
+  const [dateRange, setDateRange] = useState<"today" | "week" | "all">("today");
 
   const now = new Date();
-  const enteredToday = tickets.filter((t) => sameDay(t.entryTime, now)).length;
-  const exitedToday = tickets.filter((t) => t.exitTime && sameDay(t.exitTime, now)).length;
-  const completed = tickets.filter((t) => t.loadingEnd && t.entryTime);
+
+  const filteredTickets = tickets.filter((t) => {
+    if (dateRange === "today") {
+      return sameDay(t.entryTime, now);
+    }
+    if (dateRange === "week") {
+      const d = new Date(t.entryTime);
+      const diff = now.getTime() - d.getTime();
+      return diff <= 7 * 24 * 60 * 60 * 1000;
+    }
+    return true; // "all"
+  });
+
+  const filteredActivity = activity.filter((a) => {
+    if (dateRange === "today") {
+      return sameDay(a.at, now);
+    }
+    if (dateRange === "week") {
+      const d = new Date(a.at);
+      const diff = now.getTime() - d.getTime();
+      return diff <= 7 * 24 * 60 * 60 * 1000;
+    }
+    return true; // "all"
+  });
+
+  const enteredCount = filteredTickets.length;
+  const exitedCount = filteredTickets.filter((t) => t.exitTime).length;
+  const completed = filteredTickets.filter((t) => t.loadingEnd && t.entryTime);
   const avgLoad = completed.length
     ? Math.round(
         completed.reduce(
@@ -103,16 +130,16 @@ export default function ReportsPage() {
         ) / completed.length
       )
     : 0;
-  const held = tickets.filter((t) => t.status === "held").length;
+  const held = filteredTickets.filter((t) => t.status === "held").length;
 
   const statusCounts = STATUS_ORDER.map((s) => ({
     status: s,
-    count: tickets.filter((t) => t.status === s).length,
+    count: filteredTickets.filter((t) => t.status === s).length,
   }));
   const maxStatus = Math.max(1, ...statusCounts.map((s) => s.count));
 
   const byAgent = Object.entries(
-    tickets.reduce<Record<string, number>>((acc, t) => {
+    filteredTickets.reduce<Record<string, number>>((acc, t) => {
       acc[t.agent] = (acc[t.agent] ?? 0) + 1;
       return acc;
     }, {}),
@@ -148,7 +175,7 @@ export default function ReportsPage() {
       "Exit time",
     ];
 
-    const rows = tickets.map((t) => [
+    const rows = filteredTickets.map((t) => [
       t.id,
       t.vehicle,
       t.boe,
@@ -178,16 +205,58 @@ export default function ReportsPage() {
 
   return (
     <>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-2">
+        <div className="flex bg-slate-100 dark:bg-slate-900 p-1 rounded-lg w-fit text-xs font-bold border border-slate-200/55 dark:border-slate-800">
+          <button
+            onClick={() => setDateRange("today")}
+            className={`px-4 py-2 rounded-md transition-colors ${
+              dateRange === "today"
+                ? "bg-white text-slate-800 shadow-sm"
+                : "text-slate-500 hover:text-slate-700"
+            }`}
+          >
+            Today
+          </button>
+          <button
+            onClick={() => setDateRange("week")}
+            className={`px-4 py-2 rounded-md transition-colors ${
+              dateRange === "week"
+                ? "bg-white text-slate-800 shadow-sm"
+                : "text-slate-500 hover:text-slate-700"
+            }`}
+          >
+            This Week
+          </button>
+          <button
+            onClick={() => setDateRange("all")}
+            className={`px-4 py-2 rounded-md transition-colors ${
+              dateRange === "all"
+                ? "bg-white text-slate-800 shadow-sm"
+                : "text-slate-500 hover:text-slate-700"
+            }`}
+          >
+            All Time
+          </button>
+        </div>
+
+        <button
+          onClick={exportVisits}
+          className="flex items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50 transition-colors shadow-sm"
+        >
+          Export Movement Log CSV
+        </button>
+      </div>
+
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <Metric
-          label="ENTRIES TODAY"
-          value={enteredToday}
+          label={dateRange === "today" ? "ENTRIES TODAY" : dateRange === "week" ? "ENTRIES THIS WEEK" : "TOTAL ENTRIES"}
+          value={enteredCount}
           sub="Recorded at the gate"
           icon={<LogIn size={18} />}
         />
         <Metric
-          label="EXITS TODAY"
-          value={exitedToday}
+          label={dateRange === "today" ? "EXITS TODAY" : dateRange === "week" ? "EXITS THIS WEEK" : "TOTAL EXITS"}
+          value={exitedCount}
           sub="Dispatches completed"
           icon={<DoorOpen size={18} />}
         />
@@ -267,7 +336,7 @@ export default function ReportsPage() {
             </p>
           </div>
           <div className="flex items-center gap-3">
-            <Pill tone="slate">{activity.length} events</Pill>
+            <Pill tone="slate">{filteredActivity.length} events</Pill>
             <button
               onClick={exportVisits}
               className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-xs font-bold text-slate-700 transition-colors hover:bg-slate-50"
@@ -276,11 +345,11 @@ export default function ReportsPage() {
             </button>
           </div>
         </div>
-        {activity.length === 0 ? (
-          <p className="text-sm text-slate-400">No activity recorded yet.</p>
+        {filteredActivity.length === 0 ? (
+          <p className="text-sm text-slate-400">No activity recorded for this period.</p>
         ) : (
           <div className="flex flex-col">
-            {activity.slice(0, 40).map((a) => {
+            {filteredActivity.slice(0, 40).map((a) => {
               const meta = ACTION_META[a.action];
               const Icon = meta.icon;
               return (
@@ -303,7 +372,15 @@ export default function ReportsPage() {
                         ) : null}
                       </p>
                       <p className="mt-px text-xs text-slate-400">
-                        {a.serial ? `SN #${a.serial}` : ""}
+                        {a.serial
+                          ? a.action === "entry"
+                            ? `SN G-${String(a.serial).padStart(3, "0")}`
+                            : a.action.startsWith("billing")
+                              ? `SN B-${String(a.serial).padStart(3, "0")}`
+                              : a.action.startsWith("loading")
+                                ? `SN L-${String(a.serial).padStart(3, "0")}`
+                                : `SN #${a.serial}`
+                          : ""}
                         {a.serial && a.detail ? " · " : ""}
                         {a.detail ?? ""}
                       </p>

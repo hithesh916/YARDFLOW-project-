@@ -9,6 +9,7 @@ import {
   ShieldAlert,
   Truck,
 } from "lucide-react";
+import Link from "next/link";
 import { Panel } from "@/components/panel";
 import { Pill, type Tone } from "@/components/pill";
 import { filterBySearch, useStore } from "@/lib/store";
@@ -191,18 +192,21 @@ export default function DashboardPage() {
             icon={<ReceiptText size={22} />}
             l1="BILLING"
             l2={`${pendingBilling} PENDING`}
+            href="/billing"
           />
           <FlowStage
             tone={currentLoading > 0 ? "active" : "mid"}
             icon={<Truck size={22} />}
             l1="LOADING"
             l2={`${currentLoading} ACTIVE`}
+            href="/loading"
           />
           <FlowStage
             tone={waitingExit > 0 ? "active" : "dim"}
             icon={<LogOut size={22} />}
             l1="EXIT GATE"
             l2={`${waitingExit} WAITING`}
+            href="/exit"
           />
         </div>
       </Panel>
@@ -302,17 +306,19 @@ function FlowStage({
   icon,
   l1,
   l2,
+  href,
 }: {
   tone: "active" | "mid" | "dim";
   icon: React.ReactNode;
   l1: string;
   l2: string;
+  href?: string;
 }) {
-  return (
+  const content = (
     <div className="relative z-[1] flex flex-row md:flex-col items-center md:items-center gap-4 md:gap-3 w-full md:w-auto">
       <div
         className={cn(
-          "flex h-14 w-14 shrink-0 items-center justify-center rounded-[14px] z-[2]",
+          "flex h-14 w-14 shrink-0 items-center justify-center rounded-[14px] z-[2] transition-transform group-hover:scale-105",
           tone === "active" && "bg-blue-600 text-white",
           tone === "mid" && "border border-slate-300 bg-white text-slate-700",
           tone === "dim" && "bg-slate-100 text-slate-400",
@@ -320,7 +326,7 @@ function FlowStage({
       >
         {icon}
       </div>
-      <div className="rounded-lg border border-slate-200 px-4 py-2 text-left md:text-center flex-1 md:flex-none">
+      <div className="rounded-lg border border-slate-200 px-4 py-2 text-left md:text-center flex-1 md:flex-none bg-white transition-colors group-hover:border-blue-400 group-hover:shadow-sm">
         <div className="text-xs font-extrabold tracking-wide text-slate-700">
           {l1}
         </div>
@@ -328,4 +334,14 @@ function FlowStage({
       </div>
     </div>
   );
+
+  if (href) {
+    return (
+      <Link href={href} className="group cursor-pointer">
+        {content}
+      </Link>
+    );
+  }
+
+  return content;
 }

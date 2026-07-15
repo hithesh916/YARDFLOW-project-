@@ -12,6 +12,7 @@ import {
   RotateCcw,
   ShieldCheck,
   Download,
+  Building,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Panel } from "@/components/panel";
@@ -51,6 +52,7 @@ export default function AdminPage() {
   const permissions = useStore((s) => s.permissions);
   const settings = useStore((s) => s.settings);
   const tickets = useStore((s) => s.tickets);
+  const tenants = useStore((s) => s.tenants);
   const updateSettings = useStore((s) => s.updateSettings);
   const reset = useStore((s) => s.reset);
 
@@ -58,12 +60,17 @@ export default function AdminPage() {
   const deleteOperator = useStore((s) => s.deleteOperator);
   const updatePermissions = useStore((s) => s.updatePermissions);
 
-  const [activeTab, setActiveTab] = useState<"directory" | "grid" | "reports" | "receipt">("directory");
+  const [activeTab, setActiveTab] = useState<"company" | "directory" | "grid" | "reports" | "receipt">("company");
 
   // Terminal Settings
   const [terminalName, setTerminalName] = useState(settings?.terminalName || "");
   const [maxActiveBays, setMaxActiveBays] = useState(settings?.maxActiveBays || 20);
   const [timezone, setTimezone] = useState(settings?.timezone || "");
+  const [companyName, setCompanyName] = useState(settings?.companyName || "");
+  const [companyAddress, setCompanyAddress] = useState(settings?.companyAddress || "");
+  const [companyContact, setCompanyContact] = useState(settings?.companyContact || "");
+  const [companyEmail, setCompanyEmail] = useState(settings?.companyEmail || "");
+  const [companyGst, setCompanyGst] = useState(settings?.companyGst || "");
   const [busy, setBusy] = useState(false);
 
   // New Operator Form
@@ -211,6 +218,11 @@ export default function AdminPage() {
       setTerminalName(settings.terminalName);
       setMaxActiveBays(settings.maxActiveBays);
       setTimezone(settings.timezone);
+      setCompanyName(settings.companyName || "");
+      setCompanyAddress(settings.companyAddress || "");
+      setCompanyContact(settings.companyContact || "");
+      setCompanyEmail(settings.companyEmail || "");
+      setCompanyGst(settings.companyGst || "");
     }
   }, [settings]);
 
@@ -224,10 +236,15 @@ export default function AdminPage() {
       terminalName: terminalName.trim(),
       maxActiveBays: Number(maxActiveBays) || 20,
       timezone: timezone.trim() || "Asia/Kolkata",
+      companyName: companyName.trim(),
+      companyAddress: companyAddress.trim(),
+      companyContact: companyContact.trim(),
+      companyEmail: companyEmail.trim(),
+      companyGst: companyGst.trim(),
     });
     setBusy(false);
     if (ok) {
-      toast.success("Terminal settings saved.");
+      toast.success("Settings saved successfully.");
     }
   }
 
@@ -294,6 +311,16 @@ export default function AdminPage() {
       {/* Tabs list matching screenshots */}
       <div className="flex border-b border-slate-200 text-xs">
         <button
+          onClick={() => setActiveTab("company")}
+          className={`flex items-center gap-2 py-3 px-4 font-bold border-b-2 transition-colors ${
+            activeTab === "company"
+              ? "border-blue-600 text-blue-600"
+              : "border-transparent text-slate-400 hover:text-slate-600"
+          }`}
+        >
+          <Building size={15} /> Company Information
+        </button>
+        <button
           onClick={() => setActiveTab("directory")}
           className={`flex items-center gap-2 py-3 px-4 font-bold border-b-2 transition-colors ${
             activeTab === "directory"
@@ -334,6 +361,180 @@ export default function AdminPage() {
           <Receipt size={15} /> Receipt Config
         </button>
       </div>
+
+      {/* Company Information Tab */}
+      {activeTab === "company" && (
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-[2fr_1fr]">
+          <Panel className="p-8 bg-white shadow-sm">
+            <h3 className="mb-1 text-base font-extrabold text-slate-800 flex items-center gap-2">
+              <Building size={18} className="text-blue-600" />
+              Company Details &amp; Settings
+            </h3>
+            <p className="mb-6 text-xs text-slate-400">
+              Manage client company profile details and main terminal configurations.
+            </p>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+              <div>
+                <label className="mb-1 block text-xs font-bold text-slate-600">COMPANY NAME</label>
+                <input
+                  value={companyName}
+                  onChange={(e) => setCompanyName(e.target.value)}
+                  placeholder="e.g. Acme Logistics Corp"
+                  className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-2 text-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-bold text-slate-600">GST / TAX ID</label>
+                <input
+                  value={companyGst}
+                  onChange={(e) => setCompanyGst(e.target.value)}
+                  placeholder="e.g. 29GGGGG1314R9Z6"
+                  className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-2 text-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
+                />
+              </div>
+              <div className="md:col-span-2">
+                <label className="mb-1 block text-xs font-bold text-slate-600">COMPANY ADDRESS</label>
+                <textarea
+                  value={companyAddress}
+                  onChange={(e) => setCompanyAddress(e.target.value)}
+                  placeholder="e.g. 45 Main St, Industrial Zone"
+                  className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-2 text-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100 min-h-16 resize-y"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-bold text-slate-600">CONTACT NUMBER</label>
+                <input
+                  value={companyContact}
+                  onChange={(e) => setCompanyContact(e.target.value)}
+                  placeholder="e.g. +91 98765 43210"
+                  className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-2 text-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-bold text-slate-600">EMAIL ADDRESS</label>
+                <input
+                  type="email"
+                  value={companyEmail}
+                  onChange={(e) => setCompanyEmail(e.target.value)}
+                  placeholder="e.g. admin@acmelogistics.com"
+                  className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-2 text-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
+                />
+              </div>
+            </div>
+
+            <div className="my-6 border-t border-slate-100" />
+
+            <h4 className="mb-4 text-xs font-black tracking-wider text-slate-400 uppercase">TERMINAL CONFIGURATIONS</h4>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+              <div>
+                <label className="mb-1 block text-xs font-bold text-slate-600">TERMINAL NAME</label>
+                <input
+                  value={terminalName}
+                  onChange={(e) => setTerminalName(e.target.value)}
+                  placeholder="e.g. Gate Terminal A"
+                  className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-2 text-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-bold text-slate-600">MAX ACTIVE BAYS</label>
+                <input
+                  type="number"
+                  value={maxActiveBays}
+                  onChange={(e) => setMaxActiveBays(Number(e.target.value))}
+                  placeholder="20"
+                  className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-2 text-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-bold text-slate-600">TIMEZONE</label>
+                <select
+                  value={timezone}
+                  onChange={(e) => setTimezone(e.target.value)}
+                  className="w-full rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
+                >
+                  <option value="Asia/Kolkata">Asia/Kolkata (IST)</option>
+                  <option value="UTC">UTC</option>
+                  <option value="America/New_York">America/New_York (EST)</option>
+                  <option value="Europe/London">Europe/London (GMT)</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="mt-8 flex justify-end">
+              <button
+                onClick={handleSaveSettings}
+                disabled={busy}
+                className="rounded-lg bg-blue-600 px-6 py-2.5 text-xs font-bold text-white hover:bg-blue-700 shadow-sm"
+              >
+                Save Configurations
+              </button>
+            </div>
+          </Panel>
+
+          <div className="flex flex-col gap-6">
+            <Panel className="p-6 bg-slate-900 text-white">
+              <h4 className="text-[11px] font-black tracking-wider uppercase text-amber-500 mb-4 border-l-2 border-amber-500 pl-3">
+                SYSTEM INTEGRITY INFO
+              </h4>
+              <div className="flex flex-col gap-4 text-xs text-slate-300">
+                <p>
+                  Company profile settings are printed as standard header contents on Entry, Billing, and Loading tickets.
+                </p>
+                <p>
+                  Changing the Timezone will adjust the automatic daily midnight reset schedule dynamically.
+                </p>
+              </div>
+            </Panel>
+            
+            <Panel className="p-6 bg-white shadow-sm">
+              <h4 className="text-[11px] font-black tracking-wider uppercase text-slate-400 mb-3">
+                DATABASE UTILITIES
+              </h4>
+              <p className="text-[11px] text-slate-400 mb-4">
+                Danger zone. Clear operations history manually if needed.
+              </p>
+              <Dialog>
+                <DialogTrigger
+                  render={
+                    <button className="flex w-full items-center justify-center gap-1.5 rounded-lg border-2 border-red-100 bg-white px-4 py-2.5 text-xs font-bold text-red-600 transition-all hover:bg-red-50 active:scale-[0.98]">
+                      <RotateCcw size={13} /> Reset Yard Operations
+                    </button>
+                  }
+                />
+                <DialogContent className="max-w-[400px] p-6 bg-white rounded-xl shadow-xl">
+                  <DialogHeader>
+                    <DialogTitle className="text-base font-extrabold text-slate-900">
+                      Are you absolutely sure?
+                    </DialogTitle>
+                    <DialogDescription className="text-xs text-slate-500 mt-2">
+                      This action will wipe all active tokens, pending queues, logs, and reset current serial counts to 0. Settings and user logins will remain intact.
+                    </DialogDescription>
+                  </DialogHeader>
+                  <DialogFooter className="mt-6 flex justify-end gap-3">
+                    <DialogClose
+                      render={
+                        <button className="rounded-lg bg-slate-100 px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-200">
+                          Cancel
+                        </button>
+                      }
+                    />
+                    <button
+                      onClick={async () => {
+                        await reset();
+                        toast.success("All operational yard data has been reset.");
+                      }}
+                      className="rounded-lg bg-red-600 px-4 py-2 text-xs font-bold text-white hover:bg-red-700"
+                    >
+                      Reset Data
+                    </button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+            </Panel>
+          </div>
+        </div>
+      )}
 
       {/* Operator Directory Tab */}
       {activeTab === "directory" && (
@@ -392,11 +593,16 @@ export default function AdminPage() {
                     ))}
                   </select>
                 </div>
+                {operators.length >= (tenants?.[0]?.seats || 5) && (
+                  <div className="rounded-lg bg-amber-50 border border-amber-200 p-3 text-xs text-amber-700 font-semibold mb-2 leading-relaxed">
+                    ⚠️ Seat limit reached ({tenants?.[0]?.seats || 5}). Upgrade your client license via Super-Admin Hub to register more operators.
+                  </div>
+                )}
                 <div className="mt-2">
                   <button
                     type="submit"
-                    disabled={busy}
-                    className="rounded-lg bg-blue-600 px-6 py-2.5 text-xs font-bold text-white hover:bg-blue-700 shadow-sm"
+                    disabled={busy || operators.length >= (tenants?.[0]?.seats || 5)}
+                    className="rounded-lg bg-blue-600 px-6 py-2.5 text-xs font-bold text-white hover:bg-blue-700 shadow-sm disabled:bg-slate-200 disabled:text-slate-400 disabled:cursor-not-allowed"
                   >
                     Register Account
                   </button>

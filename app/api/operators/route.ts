@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createOperator, deleteOperator } from "@/lib/db";
+import { createOperator, deleteOperator, changeOperatorPassword } from "@/lib/db";
 
 export async function POST(req: Request) {
   try {
@@ -17,6 +17,11 @@ export async function POST(req: Request) {
         return NextResponse.json({ error: "Missing operator ID" }, { status: 400 });
       }
       state = await deleteOperator(id);
+    } else if (action === "change-password") {
+      if (!username || !passcode) {
+        return NextResponse.json({ error: "Missing username or passcode" }, { status: 400 });
+      }
+      state = await changeOperatorPassword(username, passcode);
     } else {
       return NextResponse.json({ error: "Invalid action" }, { status: 400 });
     }
