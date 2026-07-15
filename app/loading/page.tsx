@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Ban, CheckCircle2, ScanLine, ChevronDown } from "lucide-react";
+import { Ban, CheckCircle2, ScanLine, ChevronDown, Printer } from "lucide-react";
 import { toast } from "sonner";
 import { Panel } from "@/components/panel";
 import { Pill } from "@/components/pill";
@@ -21,6 +21,9 @@ export default function LoadingPage() {
   const scannedFor = useStore((s) => s.loadingScannedFor);
   const setScanned = useStore((s) => s.setScanned);
   const ticketAction = useStore((s) => s.ticketAction);
+  const settings = useStore((s) => s.settings);
+  const tz = settings?.timezone || "Asia/Kolkata";
+  const todayStr = new Date().toLocaleDateString("sv-SE", { timeZone: tz });
 
   const queue = filterBySearch(tickets, search).filter(
     (t) => t.status === "awaiting_loading",
@@ -42,9 +45,11 @@ export default function LoadingPage() {
   const current = queue.find((t) => t.id === selectedId) ?? queue[0] ?? null;
 
   const recentDone = [...tickets]
-    .filter((t) => t.loadingEnd)
-    .sort((a, b) => (b.loadingEnd ?? "").localeCompare(a.loadingEnd ?? ""))
-    .slice(0, 3);
+    .filter((t) =>
+      t.loadingEnd &&
+      new Date(t.entryTime).toLocaleDateString("sv-SE", { timeZone: tz }) === todayStr
+    )
+    .sort((a, b) => (b.loadingEnd ?? "").localeCompare(a.loadingEnd ?? ""));
 
   if (!current) {
     return (
@@ -171,9 +176,18 @@ export default function LoadingPage() {
         ) : (
           recentDone.map((t) => (
             <div key={t.id} className="mb-3 flex items-center justify-between">
-              <div>
-                <p className="text-sm font-bold text-slate-800">{t.vehicle}</p>
-                <p className="text-xs text-slate-400">SN #{t.serial}</p>
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => printLoadingToken(t)}
+                  className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:text-blue-600 active:scale-95 transition-all shadow-sm cursor-pointer"
+                  title="Reprint Loading Pass"
+                >
+                  <Printer size={13} />
+                </button>
+                <div>
+                  <p className="text-sm font-bold text-slate-800">{t.vehicle}</p>
+                  <p className="text-xs text-slate-400">SN #{t.serial}</p>
+                </div>
               </div>
               <div className="text-right">
                 <p
