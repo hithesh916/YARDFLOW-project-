@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { CheckCircle2, AlertCircle, Plus, ReceiptText } from "lucide-react";
+import { CheckCircle2, AlertCircle, Plus, ReceiptText, Printer } from "lucide-react";
 import { toast } from "sonner";
 import { Panel } from "@/components/panel";
 import { Pill } from "@/components/pill";
@@ -13,6 +13,9 @@ export default function BillingPage() {
   const tickets = useStore((s) => s.tickets);
   const search = useStore((s) => s.search);
   const ticketAction = useStore((s) => s.ticketAction);
+  const settings = useStore((s) => s.settings);
+  const tz = settings?.timezone || "Asia/Kolkata";
+  const todayStr = new Date().toLocaleDateString("sv-SE", { timeZone: tz });
 
   // Get all tickets currently waiting for billing
   const billingQueue = filterBySearch(tickets, search).filter(
@@ -39,10 +42,16 @@ export default function BillingPage() {
 
   const current = billingQueue.find((t) => t.id === selectedId) ?? null;
 
-  // Inbound queue logs: list all tickets currently in the system that are either waiting for billing,
-  // waiting for loading, or waiting for exit, sorted with newest first.
   const inboundLogs = [...tickets]
-    .filter((t) => t.status !== "exited" && t.status !== "held")
+    .filter((t) => t.status !== "exited" && t.status !== "held"
+      && new Date(t.entryTime).toLocaleDateString("sv-SE", { timeZone: tz }) === todayStr)
+    .sort((a, b) => b.entryTime.localeCompare(a.entryTime));
+
+  const recentBilled = [...tickets]
+    .filter((t) =>
+      (t.invoice !== null && t.invoice !== undefined)
+      && new Date(t.entryTime).toLocaleDateString("sv-SE", { timeZone: tz }) === todayStr
+    )
     .sort((a, b) => b.entryTime.localeCompare(a.entryTime));
 
   async function addBoeField() {
@@ -327,6 +336,47 @@ export default function BillingPage() {
                   </div>
                 );
               })}
+            </div>
+          )}
+        </Panel>
+
+        {/* Recently Billed Log Registry */}
+        <Panel className="p-6 bg-white shadow-sm">
+          <p className="mb-4 text-[11px] font-black tracking-[0.08em] text-slate-500 uppercase">
+            TODAY&apos;S BILLED
+          </p>
+          {recentBilled.length === 0 ? (
+            <p className="text-xs text-slate-400 py-4 text-center">No bills processed today yet.</p>
+          ) : (
+            <div className="flex flex-col gap-3">
+              {recentBilled.map((t) => (
+                <div
+                  key={t.id}
+                  className="flex items-center justify-between border-b border-slate-100 pb-3 last:border-b-0 last:pb-0"
+                >
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={() => printBillingToken(t)}
+                      className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:text-blue-600 active:scale-95 transition-all shadow-sm cursor-pointer"
+                      title="Reprint Billing Pass"
+                    >
+                      <Printer size={13} />
+                    </button>
+                    <div>
+                      <p className="text-xs font-bold text-slate-800">{t.vehicle}</p>
+                      <p className="text-[10px] text-slate-400 mt-0.5">Inv: {t.invoice}</p>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <span className="text-[10px] font-bold text-slate-500 block">
+                      SN: {pad(t.serial)}
+                    </span>
+                    <span className="inline-flex items-center rounded bg-emerald-50 px-1.5 py-0.5 text-[9px] font-bold text-emerald-700 mt-0.5">
+                      {t.paymentStatus?.toUpperCase() || "PAID"}
+                    </span>
+                  </div>
+                </div>
+              ))}
             </div>
           )}
         </Panel>

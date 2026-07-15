@@ -13,6 +13,8 @@ export default function EntryPage() {
   const lastTokenId = useStore((s) => s.lastTokenId);
   const createTicket = useStore((s) => s.createTicket);
   const settings = useStore((s) => s.settings);
+  const tz = settings?.timezone || "Asia/Kolkata";
+  const todayStr = new Date().toLocaleDateString("sv-SE", { timeZone: tz });
 
   const [vehicle, setVehicle] = useState("");
   const [boe, setBoe] = useState("");
@@ -21,7 +23,9 @@ export default function EntryPage() {
   const [busy, setBusy] = useState(false);
 
   const lastToken = tickets.find((t) => t.id === lastTokenId) ?? null;
-  const recent = [...tickets].slice(-5).reverse();
+  const recent = [...tickets]
+    .filter((t) => new Date(t.entryTime).toLocaleDateString("sv-SE", { timeZone: tz }) === todayStr)
+    .sort((a, b) => b.entryTime.localeCompare(a.entryTime));
 
   async function generate() {
     const v = vehicle.trim().toUpperCase();
@@ -201,9 +205,18 @@ export default function EntryPage() {
                     </p>
                   </div>
                 </div>
-                <span className="text-xs text-slate-400">
-                  {fmtTime(t.entryTime)}
-                </span>
+                <div className="flex items-center gap-3">
+                  <span className="text-xs text-slate-400 font-medium">
+                    {fmtTime(t.entryTime)}
+                  </span>
+                  <button
+                    onClick={() => printToken(t)}
+                    className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:text-blue-600 active:scale-95 transition-all shadow-sm cursor-pointer"
+                    title="Reprint Gate Token"
+                  >
+                    <Printer size={13} />
+                  </button>
+                </div>
               </div>
             ))}
           </div>
