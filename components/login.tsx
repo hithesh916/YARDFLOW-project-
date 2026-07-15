@@ -37,13 +37,8 @@ export function Login() {
   }
 
   const demoAccounts = [
-    { u: "superadmin", p: "super123", label: "Super-Admin Hub" },
-    { u: "admin", p: "admin123", label: "Admin Console" },
-    { u: "dashboard", p: "dash123", label: "Dashboard / Reports" },
     { u: "entry", p: "entry123", label: "Entry Gate Only" },
     { u: "billing", p: "billing123", label: "Billing Approval Only" },
-    { u: "loading", p: "loading123", label: "Loading Approval Only" },
-    { u: "exit", p: "exit123", label: "Exit Gate Only" },
   ];
 
   return (
