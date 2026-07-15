@@ -6,6 +6,7 @@
 
 import { promises as fs } from "fs";
 import path from "path";
+import os from "os";
 import { buildSeed, pick, BAYS, CARGO } from "./seed";
 import type {
   ActivityEntry,
@@ -14,7 +15,9 @@ import type {
   YardState,
 } from "./types";
 
-const DATA_DIR = path.join(process.cwd(), "transactions");
+const DATA_DIR = process.env.VERCEL
+  ? path.join(os.tmpdir(), "transactions")
+  : path.join(process.cwd(), "transactions");
 const LEDGER_FILE = path.join(DATA_DIR, "ledger.json");
 const ACTIVITY_FILE = path.join(DATA_DIR, "activity-log.json");
 const ACTIVITY_LIMIT = 500;
