@@ -36,6 +36,7 @@ import { fmtClock, fmtDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { Login } from "@/components/login";
 import { Panel } from "@/components/panel";
+import pkg from "../package.json";
 
 interface NavItem {
   href: string;
@@ -278,9 +279,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               Sign Out
             </button>
           </div>
-          <p className="mx-4 mt-[18px] text-[10px] text-slate-300">
-            Product by Cubiqlab Technologies
-          </p>
+          <div className="mx-4 mt-[18px] flex items-center justify-between text-[10px] text-slate-400">
+            <span>Product by Cubiqlab Technologies</span>
+            <span className="font-semibold">v{pkg.version}</span>
+          </div>
         </div>
       </aside>
 
@@ -357,9 +359,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   Sign Out
                 </button>
               </div>
-              <p className="mt-[18px] text-[10px] text-slate-300">
-                Product by Cubiqlab Technologies
-              </p>
+              <div className="mt-[18px] flex items-center justify-between text-[10px] text-slate-400">
+                <span>Product by Cubiqlab Technologies</span>
+                <span className="font-semibold">v{pkg.version}</span>
+              </div>
             </div>
           </aside>
         </div>
