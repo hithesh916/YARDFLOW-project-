@@ -39,6 +39,7 @@ export function Login() {
   const demoAccounts = [
     { u: "entry", p: "entry123", label: "Entry Gate Only" },
     { u: "billing", p: "billing123", label: "Billing Approval Only" },
+    { u: "loading", p: "loading123", label: "Loading Approval Only" },
   ];
 
   return (
