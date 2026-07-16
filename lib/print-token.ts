@@ -25,7 +25,7 @@ export async function printToken(ticket: Ticket): Promise<void> {
     color: #000;
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
-    font-size: 12px;
+    font-size: 14px;
   }
   @page { size: 80mm auto; margin: 0mm; }
   .ticket {
@@ -39,37 +39,37 @@ export async function printToken(ticket: Ticket): Promise<void> {
     width: 36px; height: 36px; margin: 0 auto 6px;
     background: #000; color: #fff; border-radius: 8px;
     display: flex; align-items: center; justify-content: center;
-    font-weight: 800; font-size: 14px; letter-spacing: .04em;
+    font-weight: 800; font-size: 15px; letter-spacing: .04em;
   }
-  .name { font-weight: 800; font-size: 14px; margin: 0; text-transform: uppercase; }
-  .sub { font-size: 10px; color: #000; margin: 2px 0 0; }
+  .name { font-weight: 800; font-size: 16px; margin: 0; text-transform: uppercase; }
+  .sub { font-size: 11px; color: #000; margin: 2px 0 0; }
   .token-badge {
     text-align: center;
     margin: 10px 0 6px;
   }
   .token-badge span {
     color: #000;
-    font-size: 16px;
+    font-size: 19px;
     font-weight: 900;
     letter-spacing: 0.02em;
     display: inline-block;
   }
   .eyebrow {
-    text-align: center; font-size: 10px; font-weight: 800; letter-spacing: .1em;
+    text-align: center; font-size: 11px; font-weight: 800; letter-spacing: .1em;
     color: #000; margin: 8px 0 6px; text-transform: uppercase;
   }
   .divider { border-top: 1.5px dashed #000; margin: 10px 0; }
-  .rows { font-size: 12px; }
+  .rows { font-size: 14px; }
   .row { display: flex; justify-content: space-between; padding: 3.5px 0; }
   .row .k { color: #000; }
   .row .v { font-weight: 700; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; text-align: right; word-break: break-all; color: #000; }
   .valid {
-    text-align: center; font-size: 10px; font-weight: 800; letter-spacing: .05em;
+    text-align: center; font-size: 11px; font-weight: 800; letter-spacing: .05em;
     color: #000; margin: 8px 0 6px;
   }
-  .note { text-align: center; font-size: 10px; color: #000; margin: 4px 0 0; line-height: 1.3; }
+  .note { text-align: center; font-size: 11px; color: #000; margin: 4px 0 0; line-height: 1.3; }
   .foot {
-    text-align: center; font-size: 9px; color: #000; margin-top: 10px;
+    text-align: center; font-size: 10px; color: #000; margin-top: 10px;
     border-top: 1px solid #000; padding-top: 8px; letter-spacing: .02em;
   }
 </style>
@@ -158,7 +158,7 @@ export async function printBillingToken(ticket: Ticket): Promise<void> {
     color: #000;
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
-    font-size: 12px;
+    font-size: 14px;
   }
   @page { size: 80mm auto; margin: 0mm; }
   .ticket {
@@ -172,9 +172,9 @@ export async function printBillingToken(ticket: Ticket): Promise<void> {
     width: 36px; height: 36px; margin: 0 auto 6px;
     background: #000; color: #fff; border-radius: 8px;
     display: flex; align-items: center; justify-content: center;
-    font-weight: 800; font-size: 14px; letter-spacing: .04em;
+    font-weight: 800; font-size: 15px; letter-spacing: .04em;
   }
-  .name { font-weight: 800; font-size: 14px; margin: 0; text-transform: uppercase; }
+  .name { font-weight: 800; font-size: 16px; margin: 0; text-transform: uppercase; }
   .sub { display: none; }
   .token-badge {
     text-align: center;
@@ -182,33 +182,33 @@ export async function printBillingToken(ticket: Ticket): Promise<void> {
   }
   .token-badge span {
     color: #000;
-    font-size: 16px;
+    font-size: 19px;
     font-weight: 900;
     letter-spacing: 0.02em;
     display: inline-block;
   }
   .eyebrow {
-    text-align: center; font-size: 10px; font-weight: 800; letter-spacing: .1em;
+    text-align: center; font-size: 11px; font-weight: 800; letter-spacing: .1em;
     color: #000; margin: 8px 0 6px; text-transform: uppercase;
   }
   .divider { border-top: 1.5px dashed #000; margin: 10px 0; }
-  .rows { font-size: 12px; }
+  .rows { font-size: 14px; }
   .row { display: flex; justify-content: space-between; padding: 3.5px 0; }
   .row .k { color: #000; }
   .row .v { font-weight: 700; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; text-align: right; word-break: break-all; color: #000; }
   
   .payment-status-badge {
     text-align: center;
-    margin: 12px 0 6px;
+    margin: 15px 0 8px;
   }
   .payment-status-badge span {
     color: #000;
-    font-size: 17px;
+    font-size: 28px;
     font-weight: 900;
-    padding: 6px 18px;
-    border: 2px solid #000;
-    border-radius: 5px;
-    letter-spacing: 0.02em;
+    padding: 8px 24px;
+    border: 3.5px solid #000;
+    border-radius: 6px;
+    letter-spacing: 0.04em;
     display: inline-block;
     text-transform: uppercase;
   }
@@ -220,12 +220,12 @@ export async function printBillingToken(ticket: Ticket): Promise<void> {
   }
 
   .valid {
-    text-align: center; font-size: 10px; font-weight: 800; letter-spacing: .05em;
+    text-align: center; font-size: 11px; font-weight: 800; letter-spacing: .05em;
     color: #000; margin: 8px 0 6px;
   }
-  .note { text-align: center; font-size: 10px; color: #000; margin: 4px 0 0; line-height: 1.3; }
+  .note { text-align: center; font-size: 11px; color: #000; margin: 4px 0 0; line-height: 1.3; }
   .foot {
-    text-align: center; font-size: 9px; color: #000; margin-top: 10px;
+    text-align: center; font-size: 10px; color: #000; margin-top: 10px;
     border-top: 1px solid #000; padding-top: 8px; letter-spacing: .02em;
   }
 </style>
@@ -326,7 +326,7 @@ export async function printLoadingToken(ticket: Ticket): Promise<void> {
     color: #000;
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
-    font-size: 12px;
+    font-size: 14px;
   }
   @page { size: 80mm auto; margin: 0mm; }
   .ticket {
@@ -340,27 +340,27 @@ export async function printLoadingToken(ticket: Ticket): Promise<void> {
     width: 36px; height: 36px; margin: 0 auto 6px;
     background: #000; color: #fff; border-radius: 8px;
     display: flex; align-items: center; justify-content: center;
-    font-weight: 800; font-size: 14px; letter-spacing: .04em;
+    font-weight: 800; font-size: 15px; letter-spacing: .04em;
   }
-  .name { font-weight: 800; font-size: 14px; margin: 0; text-transform: uppercase; }
-  .sub { font-size: 10px; color: #000; margin: 2px 0 0; }
+  .name { font-weight: 800; font-size: 16px; margin: 0; text-transform: uppercase; }
+  .sub { display: none; }
   .token-badge {
     text-align: center;
     margin: 10px 0 6px;
   }
   .token-badge span {
     color: #000;
-    font-size: 16px;
+    font-size: 19px;
     font-weight: 900;
     letter-spacing: 0.02em;
     display: inline-block;
   }
   .eyebrow {
-    text-align: center; font-size: 10px; font-weight: 800; letter-spacing: .1em;
+    text-align: center; font-size: 11px; font-weight: 800; letter-spacing: .1em;
     color: #000; margin: 8px 0 6px; text-transform: uppercase;
   }
   .divider { border-top: 1.5px dashed #000; margin: 10px 0; }
-  .rows { font-size: 12px; }
+  .rows { font-size: 14px; }
   .row { display: flex; justify-content: space-between; padding: 3.5px 0; }
   .row .k { color: #000; }
   .row .v { font-weight: 700; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; text-align: right; word-break: break-all; color: #000; }
@@ -376,12 +376,12 @@ export async function printLoadingToken(ticket: Ticket): Promise<void> {
   }
 
   .valid {
-    text-align: center; font-size: 10px; font-weight: 800; letter-spacing: .05em;
+    text-align: center; font-size: 11px; font-weight: 800; letter-spacing: .05em;
     color: #000; margin: 8px 0 6px;
   }
-  .note { text-align: center; font-size: 10px; color: #000; margin: 4px 0 0; line-height: 1.3; }
+  .note { text-align: center; font-size: 11px; color: #000; margin: 4px 0 0; line-height: 1.3; }
   .foot {
-    text-align: center; font-size: 9px; color: #000; margin-top: 10px;
+    text-align: center; font-size: 10px; color: #000; margin-top: 10px;
     border-top: 1px solid #000; padding-top: 8px; letter-spacing: .02em;
   }
 </style>
@@ -390,7 +390,6 @@ export async function printLoadingToken(ticket: Ticket): Promise<void> {
   <div class="ticket">
     <div class="brand">
       <p class="name">YARDFLOW MANAGER</p>
-      <p class="sub">Logistics Terminal A-1</p>
     </div>
     <div class="token-badge">
       <span>TOKEN NO: L-${String(ticket.loadingSerial ?? ticket.serial).padStart(3, "0")}</span>

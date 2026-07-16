@@ -88,7 +88,7 @@ function buildSeedActivity(tickets: Ticket[]): ActivityEntry[] {
 }
 
 const DEFAULT_SETTINGS = {
-  terminalName: "Terminal A-1",
+  terminalName: "",
   maxActiveBays: 20,
   timezone: "Asia/Kolkata",
 };

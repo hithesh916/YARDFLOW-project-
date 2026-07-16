@@ -29,6 +29,7 @@ export default function ExitPage() {
   const exitSelectedId = useStore((s) => s.exitSelectedId);
   const setExitSelected = useStore((s) => s.setExitSelected);
   const ticketAction = useStore((s) => s.ticketAction);
+  const settings = useStore((s) => s.settings);
 
   const [manualId, setManualId] = useState("");
   const [holdReason, setHoldReason] = useState("");
@@ -367,9 +368,11 @@ export default function ExitPage() {
             <p className="font-extrabold leading-tight text-slate-900">
               YARDFLOW SYSTEMS
             </p>
-            <p className="mb-4 mt-0.5 text-[10px] text-slate-400">
-              Logistics Terminal A-1
-            </p>
+            {settings?.terminalName && (
+              <p className="mb-4 mt-0.5 text-[10px] text-slate-400">
+                {settings.terminalName}
+              </p>
+            )}
             <div className="my-3 border-t border-dashed border-slate-200" />
             <div className="mb-4 flex flex-col gap-1.5 text-left text-xs">
               <div className="flex justify-between font-bold">

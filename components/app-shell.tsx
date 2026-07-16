@@ -189,11 +189,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }, [ready, currentUser, pathname, router, hasRedirected]);
 
   const settings = useStore((s) => s.settings);
-  const terminalName = settings?.terminalName || "Terminal A-1";
+  const terminalName = settings?.terminalName || "";
 
   const title = TITLES[pathname] ?? "YARDFLOW";
   const subtitle = pathname === "/" 
-    ? `${terminalName} · Live Operations` 
+    ? (terminalName ? `${terminalName} · Live Operations` : "Live Operations")
     : terminalName;
 
   // Render Login page if not authenticated

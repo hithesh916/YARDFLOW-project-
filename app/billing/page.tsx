@@ -243,9 +243,11 @@ export default function BillingPage() {
             <p className="font-extrabold leading-tight text-slate-900">
               YARDFLOW MANAGER
             </p>
-            <p className="mb-4 mt-0.5 text-[10px] text-slate-400">
-              {settings?.terminalName || "Terminal A-1"}
-            </p>
+            {settings?.terminalName && (
+              <p className="mb-4 mt-0.5 text-[10px] text-slate-400">
+                {settings.terminalName}
+              </p>
+            )}
             <div className="my-3 border-t border-dashed border-slate-200" />
             <div className="mb-4 flex flex-col gap-1.5 text-left text-xs">
               <TokenRow k="BOE NO:" v={boe || lastBilled?.boe || "—"} />
@@ -266,6 +268,19 @@ export default function BillingPage() {
                 v={boe ? fmtDate(new Date()) : (lastBilled ? fmtDate(new Date(lastBilled.entryTime)) : "—")}
               />
             </div>
+
+            {/* Payment Status Badge */}
+            {(boe || lastBilled) && (
+              <div className="mt-4 flex justify-center border-t border-slate-100 pt-4">
+                <span className={`inline-block text-[24px] font-black tracking-wider px-6 py-2.5 rounded-lg border-[3.5px] uppercase ${
+                  (paymentStatus === "Paid" || (!boe && lastBilled?.paymentStatus === "Paid"))
+                    ? "border-emerald-600 text-emerald-600 dark:border-emerald-500 dark:text-emerald-500"
+                    : "border-red-600 text-red-600 dark:border-red-500 dark:text-red-500"
+                }`}>
+                  {(paymentStatus === "Paid" || (!boe && lastBilled?.paymentStatus === "Paid")) ? "PAID" : "NOT PAID"}
+                </span>
+              </div>
+            )}
 
             <p className="mt-4 text-[10px] font-extrabold tracking-[0.05em] text-slate-400">
               VALID FOR TODAY ONLY

@@ -102,7 +102,7 @@ export const useStore = create<Store>((set, get) => ({
   alerts: [],
   activity: [],
   settings: {
-    terminalName: "Terminal A-1",
+    terminalName: "",
     maxActiveBays: 20,
     timezone: "Asia/Kolkata",
   },

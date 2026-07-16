@@ -166,9 +166,11 @@ export default function EntryPage() {
           <p className="font-extrabold leading-tight text-slate-900">
             YARDFLOW MANAGER
           </p>
-          <p className="mb-4 mt-0.5 text-[10px] text-slate-400">
-            {settings?.terminalName || "Terminal A-1"}
-          </p>
+          {settings?.terminalName && (
+            <p className="mb-4 mt-0.5 text-[10px] text-slate-400">
+              {settings.terminalName}
+            </p>
+          )}
           <div className="my-3 border-t border-dashed border-slate-200" />
           <div className="mb-4 flex flex-col gap-1.5 text-left text-xs">
             <TokenRow k="VEHICLE:" v={lastToken?.vehicle ?? "—"} />

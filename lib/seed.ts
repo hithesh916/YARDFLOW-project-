@@ -24,7 +24,7 @@ export function buildSeed(): Ledger {
     alerts: [],
     counters: { serial: 0, billingSerial: 0, loadingSerial: 0, boe: 1000 },
     settings: {
-      terminalName: "Terminal A-1",
+      terminalName: "",
       maxActiveBays: 20,
       timezone: "Asia/Kolkata",
     },
