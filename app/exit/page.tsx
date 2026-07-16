@@ -63,14 +63,14 @@ export default function ExitPage() {
     const q = manualId.trim().toLowerCase();
     if (!q) return;
     const found = queue.find(
-      (t) => t.vehicle.toLowerCase() === q || t.id.toLowerCase() === q
+      (t) => t.vehicle.toLowerCase() === q || t.id.toLowerCase() === q || t.boe.toLowerCase() === q
     );
     if (found) {
       setExitSelected(found.id);
       setManualId("");
       toast.success(`Vehicle verified for exit: ${found.vehicle}`);
     } else {
-      toast.error("No exit-ready vehicle matches that vehicle or ticket ID.");
+      toast.error("No exit-ready vehicle matches that vehicle, BOE or ticket ID.");
     }
   }
 
@@ -117,7 +117,7 @@ export default function ExitPage() {
   function handleScannedCode(code: string, scannerInstance?: any) {
     const q = code.trim().replace(/\s+/g, " ").toLowerCase();
     const found = queue.find(
-      (t) => t.vehicle.toLowerCase() === q || t.id.toLowerCase() === q
+      (t) => t.vehicle.toLowerCase() === q || t.id.toLowerCase() === q || t.boe.toLowerCase() === q
     );
     const activeScanner = scannerInstance || qrScanner;
     if (activeScanner && activeScanner.isScanning) {
