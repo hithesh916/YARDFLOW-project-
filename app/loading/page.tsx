@@ -135,28 +135,17 @@ export default function LoadingPage() {
           Loading Pass Approval
         </h2>
 
-        <div className="mb-5 grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <div>
-            <label className="mb-2 block text-[13px] font-bold text-slate-700">
-              Loading Token No (Auto Generated)
-            </label>
-            <input
-              value={matchedTicket ? "NEW (L-STAGE)" : (lastLoaded ? `L-${String(lastLoaded.loadingSerial).padStart(3, "0")}` : "AUTO")}
-              readOnly
-              className="w-full rounded-lg border border-slate-200 bg-transparent px-3.5 py-3 text-sm font-semibold text-slate-500 dark:text-slate-400 outline-none cursor-not-allowed"
-            />
-          </div>
-          <div>
-            <label className="mb-2 block text-[13px] font-bold text-slate-700">
-              Work Order No / BOE Number *
-            </label>
-            <input
-              value={boe}
-              onChange={(e) => setBoe(e.target.value)}
-              placeholder="BOE-10024"
-              className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-3 text-sm outline-none focus:border-blue-300 focus:ring-[3px] focus:ring-blue-100 uppercase font-bold"
-            />
-          </div>
+        <div className="mb-5">
+          <label className="mb-2 block text-[13px] font-bold text-slate-700">
+            Work Order No / BOE Number *
+          </label>
+          <input
+            value={boe}
+            onChange={(e) => setBoe(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && confirm()}
+            placeholder="BOE-10024"
+            className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-3 text-xl font-bold uppercase outline-none focus:border-blue-300 focus:ring-[3px] focus:ring-blue-100"
+          />
         </div>
 
         <div className="mb-5 grid grid-cols-1 gap-4 sm:grid-cols-2">
