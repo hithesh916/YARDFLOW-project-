@@ -77,6 +77,7 @@ export default function EntryPage() {
     });
     setBusy(false);
     if (created) {
+      await printToken(created);
       setVehicle("");
       setBoe("");
       setAgent("");
