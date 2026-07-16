@@ -159,9 +159,9 @@ export default function EntryPage() {
           LIVE TOKEN PREVIEW
         </p>
         <div className="rounded-xl border border-slate-200 bg-white p-6 text-center">
-          {lastToken && (
+          {(vehicle || boe || lastToken) && (
             <div className="mb-3 rounded bg-blue-50 py-1.5 px-3 text-xs font-black tracking-[0.05em] text-blue-700 uppercase">
-              TOKEN NO: G-{String(lastToken.serial).padStart(3, "0")}
+              TOKEN NO: G-{String((lastToken && !vehicle && !boe) ? lastToken.serial : "NEW").padStart(3, "0")}
             </div>
           )}
           <p className="font-extrabold leading-tight text-slate-900">
@@ -174,15 +174,16 @@ export default function EntryPage() {
           )}
           <div className="my-3 border-t border-dashed border-slate-200" />
           <div className="mb-4 flex flex-col gap-1.5 text-left text-xs">
-            <TokenRow k="VEHICLE:" v={lastToken?.vehicle ?? "—"} />
-            <TokenRow k="BOE NO:" v={lastToken?.boe ?? "—"} />
+            <TokenRow k="VEHICLE:" v={vehicle || lastToken?.vehicle || "—"} />
+            <TokenRow k="BOE NO:" v={boe || lastToken?.boe || "—"} />
+            <TokenRow k="CHA / AGENT:" v={agent || lastToken?.agent || "—"} />
             <TokenRow
               k="TIME:"
-              v={lastToken ? fmtTime(lastToken.entryTime) : "—"}
+              v={vehicle || boe ? fmtTime(new Date().toISOString()) : (lastToken ? fmtTime(lastToken.entryTime) : "—")}
             />
             <TokenRow
               k="DATE:"
-              v={lastToken ? fmtDate(new Date(lastToken.entryTime)) : "—"}
+              v={vehicle || boe ? fmtDate(new Date()) : (lastToken ? fmtDate(new Date(lastToken.entryTime)) : "—")}
             />
           </div>
 
