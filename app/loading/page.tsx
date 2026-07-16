@@ -353,43 +353,6 @@ export default function LoadingPage() {
           </motion.div>
         </div>
       </div>
-
-      {/* Upcoming queue */}
-      <Panel className="p-6 lg:col-span-2">
-        <div className="mb-4 flex items-center justify-between">
-          <h3 className="text-[14px] font-extrabold text-slate-800 uppercase tracking-wider">
-            Upcoming Queue
-          </h3>
-          <Pill tone="blue">{upcoming.length} Vehicles Pending</Pill>
-        </div>
-        {upcoming.length === 0 ? (
-          <p className="text-sm text-slate-400">No further vehicles queued.</p>
-        ) : (
-          upcoming.map((t, i) => (
-            <div
-              key={t.id}
-              onClick={() => selectFromQueue(t)}
-              className="mb-3 flex items-center justify-between rounded-lg border border-slate-200 px-5 py-4 last:mb-0 cursor-pointer hover:bg-slate-50 transition-colors"
-            >
-              <div className="flex items-center">
-                <span className="mr-4 font-extrabold text-slate-300 text-lg">
-                  {pad(loadingQueue.indexOf(t) + 1)}
-                </span>
-                <div>
-                  <p className="font-extrabold text-slate-800">{t.vehicle}</p>
-                  <p className="mt-0.5 text-xs text-slate-400">
-                    Carrier: {t.billingAgent || t.agent}
-                  </p>
-                </div>
-              </div>
-              <div className="text-right text-xs text-slate-500 font-medium">
-                <div>SN: B-{String(t.billingSerial ?? t.serial).padStart(3, "0")}</div>
-                <div className="text-slate-400 mt-0.5">Scheduled: {fmtTime(t.entryTime)}</div>
-              </div>
-            </div>
-          ))
-        )}
-      </Panel>
     </div>
   );
 }
