@@ -145,9 +145,9 @@ export default function EntryPage() {
           <button
             onClick={generate}
             disabled={!vehicle.trim() || !boe.trim() || busy}
-            className="rounded-lg bg-orange-500 px-6 py-3 text-sm font-bold text-white transition-colors hover:bg-orange-600 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400 cursor-pointer"
+            className="rounded-lg bg-orange-500 px-6 py-3.5 text-sm font-extrabold text-white transition-colors hover:bg-orange-600 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400 cursor-pointer active:scale-[0.99] transition-all"
           >
-            {busy ? "Generating…" : "Generate Token"}
+            {busy ? "Processing…" : "PROCESS & PRINT TOKEN"}
           </button>
         </div>
       </Panel>
