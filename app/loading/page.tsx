@@ -140,9 +140,11 @@ export default function LoadingPage() {
             <label className="mb-2 block text-[13px] font-bold text-slate-700">
               Loading Token No (Auto Generated)
             </label>
-            <div className="w-full rounded-lg border border-slate-200 bg-slate-100/50 px-3.5 py-3 text-sm font-semibold text-slate-500">
-              {matchedTicket ? "NEW (L-STAGE)" : (lastLoaded ? `L-${String(lastLoaded.loadingSerial).padStart(3, "0")}` : "AUTO")}
-            </div>
+            <input
+              value={matchedTicket ? "NEW (L-STAGE)" : (lastLoaded ? `L-${String(lastLoaded.loadingSerial).padStart(3, "0")}` : "AUTO")}
+              readOnly
+              className="w-full rounded-lg border border-slate-200 bg-transparent px-3.5 py-3 text-sm font-semibold text-slate-500 dark:text-slate-400 outline-none cursor-not-allowed"
+            />
           </div>
           <div>
             <label className="mb-2 block text-[13px] font-bold text-slate-700">
@@ -173,9 +175,11 @@ export default function LoadingPage() {
             <label className="mb-2 block text-[13px] font-bold text-slate-700">
               Gate Token No (Read Only)
             </label>
-            <div className="w-full rounded-lg border border-slate-200 bg-slate-100/50 px-3.5 py-3 text-sm font-semibold text-slate-500">
-              {matchedTicket ? `G-${String(matchedTicket.serial).padStart(3, "0")}` : "—"}
-            </div>
+            <input
+              value={matchedTicket ? `G-${String(matchedTicket.serial).padStart(3, "0")}` : "—"}
+              readOnly
+              className="w-full rounded-lg border border-slate-200 bg-transparent px-3.5 py-3 text-sm font-semibold text-slate-500 dark:text-slate-400 outline-none cursor-not-allowed"
+            />
           </div>
         </div>
 
@@ -184,17 +188,21 @@ export default function LoadingPage() {
             <label className="mb-2 block text-[13px] font-bold text-slate-700">
               Billing Token No (Read Only)
             </label>
-            <div className="w-full rounded-lg border border-slate-200 bg-slate-100/50 px-3.5 py-3 text-sm font-semibold text-slate-500">
-              {matchedTicket ? `B-${String(matchedTicket.billingSerial ?? matchedTicket.serial).padStart(3, "0")}` : "—"}
-            </div>
+            <input
+              value={matchedTicket ? `B-${String(matchedTicket.billingSerial ?? matchedTicket.serial).padStart(3, "0")}` : "—"}
+              readOnly
+              className="w-full rounded-lg border border-slate-200 bg-transparent px-3.5 py-3 text-sm font-semibold text-slate-500 dark:text-slate-400 outline-none cursor-not-allowed"
+            />
           </div>
           <div>
             <label className="mb-2 block text-[13px] font-bold text-slate-700">
               Date & Time (Auto Generated)
             </label>
-            <div className="w-full rounded-lg border border-slate-200 bg-slate-100/50 px-3.5 py-3 text-sm font-semibold text-slate-500">
-              {fmtDate(new Date())} {fmtTime(new Date().toISOString())}
-            </div>
+            <input
+              value={`${fmtDate(new Date())} ${fmtTime(new Date().toISOString())}`}
+              readOnly
+              className="w-full rounded-lg border border-slate-200 bg-transparent px-3.5 py-3 text-sm font-semibold text-slate-500 dark:text-slate-400 outline-none cursor-not-allowed"
+            />
           </div>
         </div>
 
