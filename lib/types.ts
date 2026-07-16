@@ -30,6 +30,8 @@ export interface Ticket {
   billingAgent?: string | null;
   billingRemarks?: string | null;
   billingTime?: string | null;
+  loadingAgent?: string | null;
+  loadingRemarks?: string | null;
 }
 
 export interface Alert {

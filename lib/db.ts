@@ -347,7 +347,10 @@ export async function createTicket(input: {
   return { state, ticket: created };
 }
 
-export function completeLoading(id: string): Promise<YardState> {
+export function completeLoading(
+  id: string,
+  extra?: { boe?: string; agent?: string; remarks?: string }
+): Promise<YardState> {
   return mutate((l, log) => {
     const t = find(l, id);
     if (t && t.status === "awaiting_loading") {
@@ -356,6 +359,9 @@ export function completeLoading(id: string): Promise<YardState> {
       t.loadingSerial = l.counters.loadingSerial;
       t.status = "awaiting_exit";
       t.loadingEnd = new Date().toISOString();
+      if (extra?.boe) t.boe = extra.boe;
+      t.loadingAgent = extra?.agent ? extra.agent.trim() : t.billingAgent || t.agent;
+      t.loadingRemarks = extra?.remarks ? extra.remarks.trim() : "";
       log({
         action: "loading_complete",
         ticketId: t.id,

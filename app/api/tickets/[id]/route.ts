@@ -24,7 +24,11 @@ export async function POST(
   let state: YardState;
   switch (action) {
     case "complete-loading":
-      state = await completeLoading(id);
+      state = await completeLoading(id, {
+        boe: typeof body.boe === "string" ? body.boe : undefined,
+        agent: typeof body.agent === "string" ? body.agent : undefined,
+        remarks: typeof body.remarks === "string" ? body.remarks : undefined,
+      });
       break;
     case "skip-loading":
       state = await skipLoading(id);

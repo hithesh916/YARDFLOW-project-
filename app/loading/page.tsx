@@ -1,19 +1,16 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Ban, CheckCircle2, ChevronDown, Printer } from "lucide-react";
+import { CheckCircle2, ClipboardCheck, Printer, Ban, ChevronDown, ChevronUp } from "lucide-react";
 import { toast } from "sonner";
 import { Panel } from "@/components/panel";
 import { Pill } from "@/components/pill";
 import { filterBySearch, useStore } from "@/lib/store";
-import { fmtTime, pad, getLocalDateString } from "@/lib/format";
+import { fmtTime, fmtDate, pad, getLocalDateString } from "@/lib/format";
 import { printLoadingToken } from "@/lib/print-token";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+import type { Ticket } from "@/lib/types";
+import { QrCode } from "@/components/qr-code";
+import { motion, AnimatePresence } from "framer-motion";
 
 export default function LoadingPage() {
   const tickets = useStore((s) => s.tickets);
@@ -23,25 +20,37 @@ export default function LoadingPage() {
   const tz = settings?.timezone || "Asia/Kolkata";
   const todayStr = getLocalDateString(new Date(), tz);
 
-  const queue = filterBySearch(tickets, search).filter(
+  // Get all tickets currently waiting for loading
+  const loadingQueue = filterBySearch(tickets, search).filter(
     (t) => t.status === "awaiting_loading",
   );
 
-  const [selectedId, setSelectedId] = useState<string>("");
+  const [boe, setBoe] = useState("");
+  const [agent, setAgent] = useState("");
+  const [remarks, setRemarks] = useState("");
   const [busy, setBusy] = useState(false);
+  const [lastLoaded, setLastLoaded] = useState<Ticket | null>(null);
+  const [matchedTicket, setMatchedTicket] = useState<Ticket | null>(null);
+  const [loadedExpanded, setLoadedExpanded] = useState(false);
 
+  // Auto-populate form fields if typed BOE / Work Order matches a ticket in the queue
   useEffect(() => {
-    if (queue.length > 0) {
-      const isStillInQueue = queue.some((t) => t.id === selectedId);
-      if (!isStillInQueue) {
-        setSelectedId(queue[0].id);
-      }
-    } else {
-      setSelectedId("");
+    const b = boe.trim().toUpperCase();
+    if (!b) {
+      setMatchedTicket(null);
+      return;
     }
-  }, [queue, selectedId]);
-
-  const current = queue.find((t) => t.id === selectedId) ?? queue[0] ?? null;
+    const matched = tickets.find(
+      (t) => t.boe.toUpperCase() === b && t.status === "awaiting_loading"
+    );
+    if (matched) {
+      setAgent(matched.billingAgent || matched.agent);
+      setRemarks(matched.loadingRemarks || "");
+      setMatchedTicket(matched);
+    } else {
+      setMatchedTicket(null);
+    }
+  }, [boe, tickets]);
 
   const recentDone = [...tickets]
     .filter((t) =>
@@ -50,152 +59,306 @@ export default function LoadingPage() {
     )
     .sort((a, b) => (b.loadingEnd ?? "").localeCompare(a.loadingEnd ?? ""));
 
-  const currentIdx = current ? queue.findIndex((t) => t.id === current.id) : -1;
-  const upcoming = queue.filter((t) => t.id !== (current?.id ?? "")).slice(0, 3);
-  async function completeLoading() {
-    if (!current || busy) return;
-    
-    setBusy(true);
-    const ticketToPrint = {
-      ...current,
-      loadingEnd: new Date().toISOString(),
-    };
+  const upcoming = loadingQueue.filter((t) => t.id !== (matchedTicket?.id ?? "")).slice(0, 3);
 
-    const ok = await ticketAction(current.id, "complete-loading");
-    if (ok) {
-      const freshTicket = useStore.getState().tickets.find((t) => t.id === current.id);
-      await printLoadingToken(freshTicket || ticketToPrint);
-    }
-    setBusy(false);
+  function selectFromQueue(t: Ticket) {
+    setBoe(t.boe);
+    setAgent(t.billingAgent || t.agent);
+    setRemarks(t.loadingRemarks || "");
+    setMatchedTicket(t);
+    toast.success(`Loaded details for ${t.vehicle} (WO: ${t.boe})`);
   }
-  async function skip() {
-    if (!current || busy) return;
+
+  async function confirm() {
+    const b = boe.trim().toUpperCase();
+    if (!b) {
+      toast.error("Work Order No is required.");
+      return;
+    }
+
     setBusy(true);
-    await ticketAction(current.id, "skip-loading");
+
+    let target = matchedTicket || tickets.find(
+      (t) => t.boe.toUpperCase() === b && t.status === "awaiting_loading"
+    );
+
+    if (!target) {
+      toast.error("No active vehicle found with this Work Order No.");
+      setBusy(false);
+      return;
+    }
+
+    const ok = await ticketAction(target.id, "complete-loading", {
+      boe: b,
+      agent: agent.trim(),
+      remarks: remarks.trim(),
+    });
+
+    setBusy(false);
+
+    if (ok) {
+      const freshTicket = useStore.getState().tickets.find((t) => t.id === target.id);
+      const printTicket = freshTicket || {
+        ...target,
+        loadingEnd: new Date().toISOString(),
+        loadingAgent: agent.trim() || target.billingAgent || target.agent,
+        loadingRemarks: remarks.trim(),
+      };
+      setLastLoaded(printTicket);
+      await printLoadingToken(printTicket);
+      setBoe("");
+      setAgent("");
+      setRemarks("");
+      setMatchedTicket(null);
+    }
+  }
+
+  async function handleSkip() {
+    if (!matchedTicket || busy) return;
+    setBusy(true);
+    const ok = await ticketAction(matchedTicket.id, "skip-loading");
+    if (ok) {
+      setBoe("");
+      setAgent("");
+      setRemarks("");
+      setMatchedTicket(null);
+    }
     setBusy(false);
   }
 
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_380px]">
-      {/* Current vehicle */}
+      {/* Left Column: Form */}
       <Panel className="p-8">
-        {!current ? (
-          <div className="py-16 text-center text-sm text-slate-400">
-            No vehicles waiting for loading. Queue is clear.
+        <h2 className="mb-6 flex items-center gap-2 text-lg font-bold text-slate-800">
+          <ClipboardCheck className="text-blue-600" size={20} />
+          Loading Pass Approval
+        </h2>
+
+        <div className="mb-5 grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div>
+            <label className="mb-2 block text-[13px] font-bold text-slate-700">
+              Loading Token No (Auto Generated)
+            </label>
+            <div className="w-full rounded-lg border border-slate-200 bg-slate-100/50 px-3.5 py-3 text-sm font-semibold text-slate-500">
+              {matchedTicket ? "NEW (L-STAGE)" : (lastLoaded ? `L-${String(lastLoaded.loadingSerial).padStart(3, "0")}` : "AUTO")}
+            </div>
           </div>
-        ) : (
-          <>
-            <div className="mb-2 flex items-center justify-between">
-              <Pill tone="slate">NEXT IN LINE</Pill>
-              <div className="text-right">
-                <p className="text-[11px] text-slate-400">QUEUE POSITION</p>
-                <p className="text-xl font-extrabold text-blue-600">
-                  {pad(currentIdx + 1)} / {queue.length}
-                </p>
-              </div>
+          <div>
+            <label className="mb-2 block text-[13px] font-bold text-slate-700">
+              Work Order No / BOE Number *
+            </label>
+            <input
+              value={boe}
+              onChange={(e) => setBoe(e.target.value)}
+              placeholder="BOE-10024"
+              className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-3 text-sm outline-none focus:border-blue-300 focus:ring-[3px] focus:ring-blue-100 uppercase font-bold"
+            />
+          </div>
+        </div>
+
+        <div className="mb-5 grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div>
+            <label className="mb-2 block text-[13px] font-bold text-slate-700">
+              CHA / Agent Name
+            </label>
+            <input
+              value={agent}
+              onChange={(e) => setAgent(e.target.value)}
+              placeholder="Global Logistics"
+              className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-3 text-sm outline-none focus:border-blue-300 focus:ring-[3px] focus:ring-blue-100"
+            />
+          </div>
+          <div>
+            <label className="mb-2 block text-[13px] font-bold text-slate-700">
+              Gate Token No (Read Only)
+            </label>
+            <div className="w-full rounded-lg border border-slate-200 bg-slate-100/50 px-3.5 py-3 text-sm font-semibold text-slate-500">
+              {matchedTicket ? `G-${String(matchedTicket.serial).padStart(3, "0")}` : "—"}
             </div>
-            <div className="my-5 text-4xl font-extrabold">{current.vehicle}</div>
-            <div className="mb-6 grid grid-cols-2 gap-4">
-              <DropdownMenu>
-                <DropdownMenuTrigger
-                  render={
-                    <button className="flex flex-col text-left rounded-lg bg-slate-50 p-3.5 transition-colors hover:bg-slate-100 dark:bg-slate-900 dark:hover:bg-slate-800 outline-none w-full border border-slate-200 dark:border-slate-800 cursor-pointer">
-                      <div className="flex items-center justify-between w-full text-[11px] font-bold text-slate-400">
-                        <span>SERIAL NO</span>
-                        <ChevronDown size={12} className="text-slate-400" />
-                      </div>
-                      <div className="mt-0.5 font-bold text-slate-800 dark:text-slate-100">
-                        B-{String(current.billingSerial ?? current.serial).padStart(3, "0")}
-                      </div>
-                    </button>
-                  }
-                />
-                <DropdownMenuContent align="start" className="w-56 p-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg shadow-md max-h-60 overflow-y-auto">
-                  {queue.map((t) => (
-                    <DropdownMenuItem
-                      key={t.id}
-                      onClick={() => setSelectedId(t.id)}
-                      className={`flex flex-col items-start gap-0.5 px-3 py-2 text-xs rounded-md transition-colors cursor-pointer ${
-                        t.id === current.id
-                          ? "bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-400 font-extrabold"
-                          : "text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800"
-                      }`}
-                    >
-                      <div className="flex items-center justify-between w-full">
-                        <span className="font-extrabold text-[13px]">{t.vehicle}</span>
-                        <span className="text-[10px] text-slate-400">B-{String(t.billingSerial ?? t.serial).padStart(3, "0")}</span>
-                      </div>
-                      <span className="text-[10px] text-slate-400">BOE: {t.boe}</span>
-                    </DropdownMenuItem>
-                  ))}
-                </DropdownMenuContent>
-              </DropdownMenu>
-              <InfoBox k="BOE / WORK ORDER" v={current.boe} />
+          </div>
+        </div>
+
+        <div className="mb-5 grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div>
+            <label className="mb-2 block text-[13px] font-bold text-slate-700">
+              Billing Token No (Read Only)
+            </label>
+            <div className="w-full rounded-lg border border-slate-200 bg-slate-100/50 px-3.5 py-3 text-sm font-semibold text-slate-500">
+              {matchedTicket ? `B-${String(matchedTicket.billingSerial ?? matchedTicket.serial).padStart(3, "0")}` : "—"}
             </div>
-            <div className="flex flex-col sm:flex-row gap-3">
-              <button
-                onClick={completeLoading}
-                disabled={busy}
-                className="flex w-full sm:flex-1 items-center justify-center gap-2 rounded-lg bg-slate-800 py-4 text-sm font-extrabold text-white disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400 text-center cursor-pointer hover:bg-slate-900 active:scale-[0.99] transition-all"
-              >
-                <CheckCircle2 size={18} /> Mark Loading Completed
-              </button>
-              <button
-                onClick={skip}
-                disabled={busy}
-                className="flex w-full sm:w-auto items-center justify-center gap-2 rounded-lg border-2 border-red-100 bg-white px-6 py-4 text-sm font-extrabold text-red-600 transition-colors hover:bg-red-50 text-center cursor-pointer active:scale-[0.99] transition-all"
-              >
-                <Ban size={16} /> Skip Vehicle
-              </button>
+          </div>
+          <div>
+            <label className="mb-2 block text-[13px] font-bold text-slate-700">
+              Date & Time (Auto Generated)
+            </label>
+            <div className="w-full rounded-lg border border-slate-200 bg-slate-100/50 px-3.5 py-3 text-sm font-semibold text-slate-500">
+              {fmtDate(new Date())} {fmtTime(new Date().toISOString())}
             </div>
-          </>
-        )}
+          </div>
+        </div>
+
+        <label className="mb-2 block text-[13px] font-bold text-slate-700">
+          Loading Remarks (Optional)
+        </label>
+        <textarea
+          value={remarks}
+          onChange={(e) => setRemarks(e.target.value)}
+          placeholder="Loading bays status, carrier notes..."
+          className="mb-5 min-h-24 w-full resize-y rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-3 text-sm outline-none focus:border-blue-300 focus:ring-[3px] focus:ring-blue-100"
+        />
+
+        <div className="flex items-center justify-end gap-3 border-t border-slate-100 pt-5">
+          <button
+            onClick={handleSkip}
+            disabled={!matchedTicket || busy}
+            className="flex items-center gap-2 rounded-lg border border-red-150 bg-white px-5 py-3 text-sm font-extrabold text-red-600 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-30 cursor-pointer active:scale-95 transition-all"
+          >
+            <Ban size={15} /> Skip/Requeue
+          </button>
+          <button
+            onClick={confirm}
+            disabled={!boe.trim() || busy}
+            className="flex items-center gap-2 rounded-lg bg-blue-600 px-6 py-3.5 text-sm font-extrabold text-white shadow-sm transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400 cursor-pointer active:scale-[0.99] transition-all"
+          >
+            {busy ? "Processing…" : "PROCESS & PRINT TOKEN"}
+          </button>
+        </div>
       </Panel>
 
-      {/* Recently loaded */}
-      <Panel className="p-6">
-        <p className="mb-4 text-[11px] font-extrabold tracking-[0.08em] text-slate-500">
-          RECENTLY LOADED
-        </p>
-        {recentDone.length === 0 ? (
-          <p className="text-xs text-slate-400">Nothing loaded yet.</p>
-        ) : (
-          recentDone.map((t) => (
-            <div key={t.id} className="mb-3 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <button
-                  onClick={() => printLoadingToken(t)}
-                  className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:text-blue-600 active:scale-95 transition-all shadow-sm cursor-pointer"
-                  title="Reprint Loading Pass"
-                >
-                  <Printer size={13} />
-                </button>
-                <div>
-                  <p className="text-sm font-bold text-slate-800">{t.vehicle}</p>
-                  <p className="text-xs text-slate-400">SN L-{String(t.loadingSerial ?? t.serial).padStart(3, "0")}</p>
-                </div>
+      {/* Right Column: Preview & custom expandable list */}
+      <div className="flex flex-col gap-5">
+        <Panel className="bg-slate-50 p-6">
+          <p className="mb-4 text-[11px] font-extrabold tracking-[0.08em] text-slate-500">
+            LIVE LOADING PASS PREVIEW
+          </p>
+          <div className="rounded-xl border border-slate-200 bg-white p-6 text-center shadow-sm">
+            {(boe || lastLoaded) && (
+              <div className="mb-3 font-black text-lg tracking-[0.05em] text-slate-800 uppercase">
+                TOKEN NO: L-{String((lastLoaded && !boe) ? (lastLoaded.loadingSerial ?? lastLoaded.serial) : "NEW").padStart(3, "0")}
               </div>
-              <div className="text-right">
-                <p
-                  className={`text-xs font-extrabold ${
-                    t.status === "held" ? "text-red-500" : "text-emerald-600"
-                  }`}
-                >
-                  {t.status === "held" ? "HELD" : "COMPLETED"}
-                </p>
-                <p className="mt-0.5 text-xs text-slate-400">
-                  {t.loadingEnd ? fmtTime(t.loadingEnd) : ""}
-                </p>
-              </div>
+            )}
+            <p className="font-extrabold leading-tight text-slate-900">
+              YARDFLOW MANAGER
+            </p>
+            <p className="mb-4 mt-0.5 text-[10px] text-slate-400">
+              {settings?.terminalName || "Terminal A-1"}
+            </p>
+            <div className="my-3 border-t border-dashed border-slate-200" />
+            <div className="mb-4 flex flex-col gap-1.5 text-left text-xs">
+              <TokenRow k="WORK ORDER NO:" v={boe || lastLoaded?.boe || "—"} />
+              <TokenRow k="CHA / AGENT:" v={agent || lastLoaded?.loadingAgent || lastLoaded?.agent || "—"} />
+              <TokenRow k="GATE TOKEN NO:" v={matchedTicket ? `G-${String(matchedTicket.serial).padStart(3, "0")}` : (lastLoaded ? `G-${String(lastLoaded.serial).padStart(3, "0")}` : "—")} />
+              <TokenRow k="BILLING TOKEN:" v={matchedTicket ? `B-${String(matchedTicket.billingSerial ?? matchedTicket.serial).padStart(3, "0")}` : (lastLoaded ? `B-${String(lastLoaded.billingSerial ?? lastLoaded.serial).padStart(3, "0")}` : "—")} />
+              <TokenRow
+                k="LOADING TIME:"
+                v={boe ? fmtTime(new Date().toISOString()) : (lastLoaded?.loadingEnd ? fmtTime(lastLoaded.loadingEnd) : "—")}
+              />
             </div>
-          ))
-        )}
-      </Panel>
+            
+            {/* Scannable QR Code for Exit Gate Scan */}
+            {(matchedTicket || lastLoaded) && (
+              <div className="mt-4 flex flex-col items-center justify-center border-t border-slate-100 pt-4">
+                <QrCode value={matchedTicket?.vehicle || lastLoaded?.vehicle || ""} size={112} className="border border-slate-200 p-1" />
+                <p className="mt-2 text-[9px] font-bold text-slate-400 uppercase tracking-wider">
+                  Exit Gate Scan Code
+                </p>
+              </div>
+            )}
+
+            <p className="mt-4 text-[10px] font-extrabold tracking-[0.05em] text-slate-400">
+              VALID FOR TODAY ONLY
+            </p>
+          </div>
+          <button
+            onClick={() => {
+              if (boe.trim()) {
+                confirm();
+              } else if (lastLoaded) {
+                printLoadingToken(lastLoaded);
+              }
+            }}
+            disabled={!boe.trim() && !lastLoaded}
+            className="mt-4 flex w-full items-center justify-center gap-2 rounded-lg bg-slate-900 py-3 text-[13px] font-bold text-white disabled:cursor-not-allowed disabled:opacity-30 cursor-pointer active:scale-95 transition-all"
+          >
+            <Printer size={16} /> {boe.trim() ? "Approve & Print Pass" : "Reprint Last Pass"}
+          </button>
+        </Panel>
+
+        <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+          {/* Header Row */}
+          <div className="flex items-center justify-between">
+            <span className="flex items-center gap-2 text-[13px] font-bold text-slate-700">
+              <ClipboardCheck size={16} className="text-slate-500" />
+              RECENTLY LOADED
+            </span>
+            <button
+              onClick={() => setLoadedExpanded(!loadedExpanded)}
+              className="flex h-7 w-7 items-center justify-center rounded-md hover:bg-slate-100 text-slate-500 cursor-pointer active:scale-95 transition-all"
+            >
+              {loadedExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+            </button>
+          </div>
+
+          {/* Inline List Container */}
+          <motion.div 
+            layout
+            className={`mt-3 flex flex-col gap-2 no-scrollbar ${loadedExpanded ? "max-h-[260px] overflow-y-auto pr-1" : ""}`}
+          >
+            <AnimatePresence initial={false}>
+              {recentDone.length === 0 ? (
+                <motion.p 
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  className="text-xs text-slate-400 py-2 text-center"
+                >
+                  Nothing loaded yet.
+                </motion.p>
+              ) : (
+                (loadedExpanded ? recentDone : recentDone.slice(0, 2)).map((t) => (
+                  <motion.div
+                    layout
+                    initial={{ opacity: 0, y: -4 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -4 }}
+                    transition={{ duration: 0.15 }}
+                    key={t.id}
+                    className="flex items-center justify-between rounded-lg border border-slate-100 bg-slate-50/50 p-2.5 text-xs transition-colors hover:border-slate-350"
+                  >
+                    <div className="flex flex-col items-start">
+                      <span className="font-extrabold text-[12px] text-slate-800">{t.boe}</span>
+                      <span className="text-[10px] text-slate-400">SN L-{String(t.loadingSerial ?? t.serial).padStart(3, "0")} · {t.loadingAgent || t.agent}</span>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <span className="text-[10px] font-extrabold text-slate-500">
+                        {t.loadingEnd ? fmtTime(t.loadingEnd) : ""}
+                      </span>
+                      <button
+                        onClick={() => printLoadingToken(t)}
+                        className="flex items-center gap-1 rounded bg-slate-900 px-2.5 py-1 text-[10px] font-bold text-white shadow-sm hover:bg-slate-850 active:scale-95 transition-all cursor-pointer"
+                      >
+                        <Printer size={10} /> PRINT
+                      </button>
+                    </div>
+                  </motion.div>
+                ))
+              )}
+            </AnimatePresence>
+            
+            {loadedExpanded && recentDone.length > 4 && (
+              <p className="text-center text-[9px] font-bold text-slate-400 mt-1 uppercase tracking-wider">
+                Scroll to view more
+              </p>
+            )}
+          </motion.div>
+        </div>
+      </div>
 
       {/* Upcoming queue */}
       <Panel className="p-6 lg:col-span-2">
         <div className="mb-4 flex items-center justify-between">
-          <h3 className="text-[15px] font-extrabold text-slate-800">
+          <h3 className="text-[14px] font-extrabold text-slate-800 uppercase tracking-wider">
             Upcoming Queue
           </h3>
           <Pill tone="blue">{upcoming.length} Vehicles Pending</Pill>
@@ -206,22 +369,23 @@ export default function LoadingPage() {
           upcoming.map((t, i) => (
             <div
               key={t.id}
-              className="mb-3 flex items-center justify-between rounded-lg border border-slate-100 px-5 py-4 last:mb-0"
+              onClick={() => selectFromQueue(t)}
+              className="mb-3 flex items-center justify-between rounded-lg border border-slate-200 px-5 py-4 last:mb-0 cursor-pointer hover:bg-slate-50 transition-colors"
             >
               <div className="flex items-center">
-                <span className="mr-4 font-extrabold text-slate-300">
-                  {pad(queue.indexOf(t) + 1)}
+                <span className="mr-4 font-extrabold text-slate-300 text-lg">
+                  {pad(loadingQueue.indexOf(t) + 1)}
                 </span>
                 <div>
                   <p className="font-extrabold text-slate-800">{t.vehicle}</p>
                   <p className="mt-0.5 text-xs text-slate-400">
-                    Carrier: {t.agent}
+                    Carrier: {t.billingAgent || t.agent}
                   </p>
                 </div>
               </div>
-              <div className="text-right text-xs text-slate-400">
+              <div className="text-right text-xs text-slate-500 font-medium">
                 <div>SN: B-{String(t.billingSerial ?? t.serial).padStart(3, "0")}</div>
-                <div>Scheduled: {fmtTime(t.entryTime)}</div>
+                <div className="text-slate-400 mt-0.5">Scheduled: {fmtTime(t.entryTime)}</div>
               </div>
             </div>
           ))
@@ -231,11 +395,11 @@ export default function LoadingPage() {
   );
 }
 
-function InfoBox({ k, v }: { k: string; v: string }) {
+function TokenRow({ k, v }: { k: string; v: string }) {
   return (
-    <div className="rounded-lg bg-slate-50 p-3.5">
-      <div className="text-[11px] font-bold text-slate-400">{k}</div>
-      <div className="mt-0.5 font-bold text-slate-800">{v}</div>
+    <div className="flex justify-between font-bold">
+      <span className="text-slate-400">{k}</span>
+      <span className="text-slate-800">{v}</span>
     </div>
   );
 }
