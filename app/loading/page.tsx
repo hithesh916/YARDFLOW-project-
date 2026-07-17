@@ -32,6 +32,7 @@ export default function LoadingPage() {
   const [billingToken, setBillingToken] = useState("");
   const [selectedTicketIds, setSelectedTicketIds] = useState<string[]>([]);
   const [showSearchModal, setShowSearchModal] = useState(false);
+  const [showBillingDropdown, setShowBillingDropdown] = useState(false);
   const [modalSearch, setModalSearch] = useState("");
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
 
@@ -234,16 +235,68 @@ export default function LoadingPage() {
         </div>
 
         <div className="mb-5 grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <div>
-            <label className="mb-2 block text-[13px] font-bold text-slate-700">
-              Billing Token No
+          <div className="relative">
+            <label className="mb-2 flex items-center justify-between text-[13px] font-bold text-slate-700">
+              <span>Billing Token No</span>
+              <button
+                type="button"
+                onClick={() => setShowBillingDropdown(!showBillingDropdown)}
+                className="text-xs font-bold text-blue-600 hover:text-blue-700 flex items-center gap-0.5 cursor-pointer"
+              >
+                {showBillingDropdown ? "▲ Hide List" : "▼ Select Billing"}
+              </button>
             </label>
-            <input
-              value={billingToken}
-              onChange={(e) => setBillingToken(e.target.value)}
-              placeholder="e.g. B-001"
-              className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-3 text-sm font-semibold outline-none focus:border-blue-300 focus:ring-[3px] focus:ring-blue-100"
-            />
+            <div className="relative">
+              <input
+                value={billingToken}
+                onChange={(e) => setBillingToken(e.target.value)}
+                placeholder="e.g. B-001"
+                className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-3 text-sm font-semibold outline-none focus:border-blue-300 focus:ring-[3px] focus:ring-blue-100 pr-10"
+              />
+              <button
+                type="button"
+                onClick={() => setShowBillingDropdown(!showBillingDropdown)}
+                className="absolute inset-y-0 right-0 flex items-center pr-3 text-slate-400 hover:text-slate-650 cursor-pointer"
+              >
+                <ChevronDown size={16} />
+              </button>
+            </div>
+
+            {showBillingDropdown && (
+              <div className="absolute left-0 right-0 z-30 mt-1 max-h-48 overflow-y-auto rounded-lg border border-slate-200 bg-white p-1 shadow-lg dark:bg-slate-900 dark:border-slate-800">
+                {tickets
+                  .filter((t) => t.status === "awaiting_loading")
+                  .map((t) => {
+                    const bNum = `B-${String(t.billingSerial ?? t.serial).padStart(3, "0")}`;
+                    return (
+                      <button
+                        key={t.id}
+                        type="button"
+                        onClick={() => {
+                          setBoe(t.boe);
+                          setAgent(t.billingAgent || t.agent);
+                          setRemarks(t.loadingRemarks || "");
+                          setGateToken(`G-${String(t.serial).padStart(3, "0")}`);
+                          setBillingToken(bNum);
+                          setMatchedTicket(t);
+                          setSelectedTicketIds([t.id]);
+                          setShowBillingDropdown(false);
+                          toast.success(`Selected billing pass: ${bNum}`);
+                        }}
+                        className="w-full text-left px-3 py-2 text-xs hover:bg-slate-100 dark:hover:bg-slate-800 rounded-md transition-colors flex items-center justify-between text-slate-700 dark:text-slate-200"
+                      >
+                        <span className="font-extrabold">{bNum}</span>
+                        <span className="text-[10px] text-slate-400 font-semibold truncate max-w-[180px]">
+                          {t.vehicle} · {t.boe}
+                        </span>
+                      </button>
+                    );
+                  })}
+                {tickets.filter((t) => t.status === "awaiting_loading").length === 0 && (
+                  <p className="text-center text-xs text-slate-400 py-3">No active billing passes waiting.</p>
+                )}
+              </div>
+            )}
           </div>
           <div>
             <label className="mb-2 block text-[13px] font-bold text-slate-700">
