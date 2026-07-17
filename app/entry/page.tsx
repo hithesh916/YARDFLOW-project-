@@ -103,7 +103,7 @@ export default function EntryPage() {
           onChange={(e) => setVehicle(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && generate()}
           placeholder="ABC-1234"
-          className="mb-5 w-full rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-3 text-xl font-bold uppercase outline-none focus:border-blue-300 focus:ring-[3px] focus:ring-blue-100"
+          className="mb-5 w-full rounded-lg border border-input bg-slate-50 dark:bg-black px-3.5 py-3 text-xl font-bold uppercase outline-none focus:ring-2 focus:ring-ring"
         />
         <div className="mb-5 grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div>
@@ -114,7 +114,7 @@ export default function EntryPage() {
               value={boe}
               onChange={(e) => setBoe(e.target.value)}
               placeholder="e.g. WO-10024"
-              className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-3 text-sm outline-none focus:border-blue-300 focus:ring-[3px] focus:ring-blue-100"
+              className="w-full rounded-lg border border-input bg-slate-50 dark:bg-black px-3.5 py-3 text-sm outline-none focus:ring-2 focus:ring-ring"
             />
           </div>
           <div>
@@ -125,7 +125,7 @@ export default function EntryPage() {
               value={agent}
               onChange={(e) => setAgent(e.target.value)}
               placeholder="Global Logistics"
-              className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-3 text-sm outline-none focus:border-blue-300 focus:ring-[3px] focus:ring-blue-100"
+              className="w-full rounded-lg border border-input bg-slate-50 dark:bg-black px-3.5 py-3 text-sm outline-none focus:ring-2 focus:ring-ring"
             />
           </div>
         </div>
@@ -136,7 +136,7 @@ export default function EntryPage() {
           value={remarks}
           onChange={(e) => setRemarks(e.target.value)}
           placeholder="Additional details..."
-          className="mb-5 min-h-24 w-full resize-y rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-3 text-sm outline-none focus:border-blue-300 focus:ring-[3px] focus:ring-blue-100"
+          className="mb-5 min-h-24 w-full resize-y rounded-lg border border-input bg-slate-50 dark:bg-black px-3.5 py-3 text-sm outline-none focus:ring-2 focus:ring-ring"
         />
         <div className="flex items-center justify-between gap-4 border-t border-slate-100 pt-5">
           <p className="flex max-w-[240px] items-center gap-2 text-xs text-slate-400">
@@ -146,7 +146,7 @@ export default function EntryPage() {
           <button
             onClick={generate}
             disabled={!vehicle.trim() || !boe.trim() || busy}
-            className="rounded-lg bg-orange-500 px-6 py-3.5 text-sm font-extrabold text-white transition-colors hover:bg-orange-600 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400 cursor-pointer active:scale-[0.99] transition-all"
+            className="rounded-lg bg-action px-6 py-3.5 text-sm font-extrabold text-white transition-colors hover:bg-action/90 disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground cursor-pointer active:scale-[0.99] transition-all"
           >
             {busy ? "Processing…" : "PROCESS & PRINT TOKEN"}
           </button>
@@ -194,7 +194,7 @@ export default function EntryPage() {
         <button
           onClick={() => lastToken && printToken(lastToken)}
           disabled={!lastToken}
-          className="mt-4 flex w-full items-center justify-center gap-2 rounded-lg bg-slate-900 py-3 text-[13px] font-bold text-white disabled:cursor-not-allowed disabled:opacity-30"
+          className="mt-4 flex w-full items-center justify-center gap-2 rounded-lg bg-secondary py-3 text-[13px] font-bold text-secondary-foreground disabled:cursor-not-allowed disabled:opacity-30 cursor-pointer hover:bg-secondary/80 active:scale-95 transition-all"
         >
           <Printer size={16} /> Print Token
         </button>

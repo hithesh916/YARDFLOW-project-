@@ -299,7 +299,7 @@ export default function LoadingPage() {
               }}
               onKeyDown={(e) => e.key === "Enter" && confirm()}
               placeholder="e.g. WO-10024"
-              className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-3 text-xl font-bold uppercase outline-none focus:border-blue-300 focus:ring-[3px] focus:ring-blue-100"
+              className="w-full rounded-lg border border-input bg-slate-50 dark:bg-black px-3.5 py-3 text-xl font-bold uppercase outline-none focus:ring-2 focus:ring-ring"
             />
           </div>
 
@@ -335,7 +335,7 @@ export default function LoadingPage() {
                     setActiveSearch({ field: "gateToken", value: val });
                   }}
                   placeholder="e.g. G-001"
-                  className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-3 text-sm font-semibold outline-none focus:border-blue-300 focus:ring-[3px] focus:ring-blue-100 pr-10"
+                  className="w-full rounded-lg border border-input bg-slate-50 dark:bg-black px-3.5 py-3 text-sm font-semibold outline-none focus:ring-2 focus:ring-ring pr-10"
                 />
                 <button
                   type="button"
@@ -423,7 +423,7 @@ export default function LoadingPage() {
                     setActiveSearch({ field: "billingToken", value: val });
                   }}
                   placeholder="e.g. B-001"
-                  className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-3 text-sm font-semibold outline-none focus:border-blue-300 focus:ring-[3px] focus:ring-blue-100 pr-10"
+                  className="w-full rounded-lg border border-input bg-slate-50 dark:bg-black px-3.5 py-3 text-sm font-semibold outline-none focus:ring-2 focus:ring-ring pr-10"
                 />
                 <button
                   type="button"
@@ -650,21 +650,21 @@ export default function LoadingPage() {
             value={remarks}
             onChange={(e) => setRemarks(e.target.value)}
             placeholder="Loading bays status, carrier notes..."
-            className="mb-5 min-h-24 w-full resize-y rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-3 text-sm outline-none focus:border-blue-300 focus:ring-[3px] focus:ring-blue-100"
+            className="mb-5 min-h-24 w-full resize-y rounded-lg border border-input bg-slate-50 dark:bg-black px-3.5 py-3 text-sm outline-none focus:ring-2 focus:ring-ring"
           />
 
           <div className="flex items-center justify-end gap-3 border-t border-slate-100 pt-5">
             <button
               onClick={handleSkip}
               disabled={!matchedTicket || busy}
-              className="flex items-center gap-2 rounded-lg border border-red-150 bg-white px-5 py-3 text-sm font-extrabold text-red-600 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-30 cursor-pointer active:scale-95 transition-all"
+              className="flex items-center gap-2 rounded-lg border border-destructive bg-transparent px-5 py-3 text-sm font-extrabold text-destructive transition-colors hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-30 cursor-pointer active:scale-95 transition-all"
             >
               <Ban size={15} /> Skip/Requeue
             </button>
             <button
               onClick={confirm}
               disabled={!boe.trim() || busy}
-              className="flex items-center gap-2 rounded-lg bg-blue-600 px-6 py-3.5 text-sm font-extrabold text-white shadow-sm transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400 cursor-pointer active:scale-[0.99] transition-all"
+              className="flex items-center gap-2 rounded-lg bg-primary px-6 py-3.5 text-sm font-extrabold text-primary-foreground shadow-sm transition-colors hover:bg-primary/95 disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground cursor-pointer active:scale-[0.99] transition-all"
             >
               {busy ? "Processing…" : "PROCESS & PRINT TOKEN"}
             </button>

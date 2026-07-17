@@ -303,7 +303,7 @@ export default function DashboardPage() {
                   </p>
                   <button
                     onClick={() => ackAlert(a.id)}
-                    className="mt-3.5 rounded-lg bg-blue-600 px-4 py-2.5 text-xs font-bold text-white transition-colors hover:bg-blue-700"
+                    className="mt-3.5 rounded-lg bg-primary px-4 py-2.5 text-xs font-bold text-primary-foreground transition-colors hover:bg-primary/95 cursor-pointer"
                   >
                     Acknowledge
                   </button>

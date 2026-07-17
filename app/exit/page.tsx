@@ -205,7 +205,7 @@ export default function ExitPage() {
                 </p>
                 <button
                   onClick={startScanner}
-                  className="mb-5 flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 py-3 text-[13px] font-extrabold text-white transition-colors hover:bg-blue-700 cursor-pointer active:scale-[0.99] transition-all shadow-sm"
+                  className="mb-5 flex w-full items-center justify-center gap-2 rounded-lg bg-primary py-3 text-[13px] font-extrabold text-primary-foreground transition-colors hover:bg-primary/95 cursor-pointer active:scale-[0.99] transition-all shadow-sm"
                 >
                   <QrIcon size={14} /> Start Camera Scanner
                 </button>
@@ -221,11 +221,11 @@ export default function ExitPage() {
               onKeyDown={(e) => e.key === "Enter" && verifyManual()}
               autoFocus
               placeholder="ABC-1234"
-              className="mb-3 w-full rounded-lg border-2 border-blue-200 px-3.5 py-3 text-center text-[15px] font-extrabold uppercase outline-none focus:ring-[3px] focus:ring-blue-100"
+              className="mb-3 w-full rounded-lg border border-input bg-slate-50 dark:bg-black px-3.5 py-3 text-center text-[15px] font-extrabold uppercase outline-none focus:ring-2 focus:ring-ring"
             />
             <button
               onClick={verifyManual}
-              className="mb-2.5 flex w-full items-center justify-center gap-2 rounded-lg bg-slate-800 py-3 text-[13px] font-extrabold text-white transition-colors hover:bg-slate-900 cursor-pointer active:scale-[0.99] transition-all"
+              className="mb-2.5 flex w-full items-center justify-center gap-2 rounded-lg bg-secondary py-3 text-[13px] font-extrabold text-secondary-foreground transition-colors hover:bg-secondary/90 cursor-pointer active:scale-[0.99] transition-all"
             >
               <ArrowRight size={16} /> Verify Manual ID
             </button>
@@ -379,12 +379,12 @@ export default function ExitPage() {
                     onChange={(e) => setHoldReason(e.target.value)}
                     rows={3}
                     placeholder="Specify vehicle hold reason..."
-                    className="mb-3 mt-1.5 w-full resize-y rounded-lg border border-slate-200 px-3 py-2.5 text-[13px] outline-none focus:ring-[3px] focus:ring-blue-100"
+                    className="mb-3 mt-1.5 w-full resize-y rounded-lg border border-input bg-slate-50 dark:bg-black px-3 py-2.5 text-[13px] outline-none focus:ring-2 focus:ring-ring"
                   />
                   <button
                     onClick={hold}
                     disabled={busy}
-                    className="flex w-full items-center justify-center gap-2 rounded-lg bg-red-600 py-2.5 text-[13px] font-extrabold text-white transition-colors hover:bg-red-700 disabled:opacity-50 cursor-pointer active:scale-95 transition-all"
+                    className="flex w-full items-center justify-center gap-2 rounded-lg bg-destructive py-2.5 text-[13px] font-extrabold text-destructive-foreground transition-colors hover:bg-destructive/90 disabled:opacity-50 cursor-pointer active:scale-95 transition-all"
                   >
                     <Ban size={14} /> Hold Vehicle
                   </button>
@@ -394,7 +394,7 @@ export default function ExitPage() {
               <button
                 onClick={permit}
                 disabled={busy}
-                className="mt-6 flex w-full items-center justify-center gap-2 rounded-lg bg-emerald-750 bg-emerald-600 py-4 text-[15px] font-extrabold text-white transition-all hover:bg-emerald-700 disabled:opacity-50 cursor-pointer active:scale-[0.99]"
+                className="mt-6 flex w-full items-center justify-center gap-2 rounded-lg bg-primary py-4 text-[15px] font-extrabold text-primary-foreground transition-all hover:bg-primary/95 disabled:opacity-50 cursor-pointer active:scale-[0.99]"
               >
                 <DoorOpen size={18} /> Permit Exit &amp; Open Gate
               </button>

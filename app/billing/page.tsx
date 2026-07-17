@@ -159,7 +159,7 @@ export default function BillingPage() {
               onChange={(e) => setBoe(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && confirm()}
               placeholder="e.g. WO-10024"
-              className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-3 text-xl font-bold uppercase outline-none focus:border-blue-300 focus:ring-[3px] focus:ring-blue-100"
+              className="w-full rounded-lg border border-input bg-slate-50 dark:bg-black px-3.5 py-3 text-xl font-bold uppercase outline-none focus:ring-2 focus:ring-ring"
             />
           </div>
 
@@ -172,7 +172,7 @@ export default function BillingPage() {
               value={agent}
               onChange={(e) => setAgent(e.target.value)}
               placeholder="Global Logistics"
-              className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-3 text-sm outline-none focus:border-blue-300 focus:ring-[3px] focus:ring-blue-100"
+              className="w-full rounded-lg border border-input bg-slate-50 dark:bg-black px-3.5 py-3 text-sm outline-none focus:ring-2 focus:ring-ring"
             />
           </div>
 
@@ -197,7 +197,7 @@ export default function BillingPage() {
                 onChange={(e) => setInvoice(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && confirm()}
                 placeholder="E.G. INV-2026-9041 (OPTIONAL)"
-                className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-3 text-sm outline-none focus:border-blue-300 focus:ring-[3px] focus:ring-blue-100"
+                className="w-full rounded-lg border border-input bg-slate-50 dark:bg-black px-3.5 py-3 text-sm outline-none focus:ring-2 focus:ring-ring"
               />
             </div>
           </div>
@@ -211,7 +211,7 @@ export default function BillingPage() {
               value={remarks}
               onChange={(e) => setRemarks(e.target.value)}
               placeholder="Additional details..."
-              className="min-h-20 w-full resize-y rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-3 text-sm outline-none focus:border-blue-300 focus:ring-[3px] focus:ring-blue-100"
+              className="min-h-20 w-full resize-y rounded-lg border border-input bg-slate-50 dark:bg-black px-3.5 py-3 text-sm outline-none focus:ring-2 focus:ring-ring"
             />
           </div>
 
@@ -223,7 +223,7 @@ export default function BillingPage() {
             <button
               onClick={confirm}
               disabled={!boe.trim() || busy}
-              className="rounded-lg bg-blue-600 px-6 py-3.5 text-sm font-extrabold text-white shadow-sm transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400 cursor-pointer active:scale-[0.99] transition-all"
+              className="rounded-lg bg-primary px-6 py-3.5 text-sm font-extrabold text-primary-foreground shadow-sm transition-colors hover:bg-primary/95 disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground cursor-pointer active:scale-[0.99] transition-all"
             >
               {busy ? "Processing…" : "PROCESS & PRINT TOKEN"}
             </button>
