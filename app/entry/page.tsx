@@ -50,12 +50,12 @@ export default function EntryPage() {
     }
 
     if (!b) {
-      toast.error("BOE Number is required.");
+      toast.error("Work Order No is required.");
       return;
     }
 
     if (!/^[A-Z0-9][A-Z0-9-]{2,29}$/.test(b)) {
-      toast.error("Enter a valid BOE number (3–30 letters, digits or hyphens).");
+      toast.error("Enter a valid Work Order number (3–30 letters, digits or hyphens).");
       return;
     }
 
@@ -108,12 +108,12 @@ export default function EntryPage() {
         <div className="mb-5 grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div>
             <label className="mb-2 block text-[13px] font-bold text-slate-700">
-              BOE Number *
+              Work Order No *
             </label>
             <input
               value={boe}
               onChange={(e) => setBoe(e.target.value)}
-              placeholder="BOE-10024"
+              placeholder="e.g. WO-10024"
               className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-3 text-sm outline-none focus:border-blue-300 focus:ring-[3px] focus:ring-blue-100"
             />
           </div>
@@ -175,7 +175,7 @@ export default function EntryPage() {
           <div className="my-3 border-t border-dashed border-slate-200" />
           <div className="mb-4 flex flex-col gap-1.5 text-left text-xs">
             <TokenRow k="VEHICLE:" v={vehicle || lastToken?.vehicle || "—"} />
-            <TokenRow k="BOE NO:" v={boe || lastToken?.boe || "—"} />
+            <TokenRow k="WORK ORDER NO:" v={boe || lastToken?.boe || "—"} />
             <TokenRow k="CHA / AGENT:" v={agent || lastToken?.agent || "—"} />
             <TokenRow
               k="TIME:"
@@ -242,7 +242,7 @@ export default function EntryPage() {
                 >
                   <div className="flex flex-col items-start">
                     <span className="font-extrabold text-[12px] text-slate-800">{t.vehicle}</span>
-                    <span className="text-[10px] text-slate-400">BoE: {t.boe}</span>
+                    <span className="text-[10px] text-slate-400">WO: {t.boe}</span>
                   </div>
                   <div className="flex items-center gap-3">
                     <div className="text-right">

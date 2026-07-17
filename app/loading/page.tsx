@@ -162,7 +162,7 @@ export default function LoadingPage() {
             value={boe}
             onChange={(e) => setBoe(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && confirm()}
-            placeholder="BOE-10024"
+            placeholder="e.g. WO-10024"
             className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-3 text-xl font-bold uppercase outline-none focus:border-blue-300 focus:ring-[3px] focus:ring-blue-100"
           />
         </div>

@@ -77,7 +77,7 @@ export default function BillingPage() {
   async function confirm() {
     const b = boe.trim().toUpperCase();
     if (!b) {
-      toast.error("BOE Number is required.");
+      toast.error("Work Order No is required.");
       return;
     }
 
@@ -152,13 +152,13 @@ export default function BillingPage() {
           {/* BOE Number (Primary) */}
           <div>
             <label className="mb-2 block text-[13px] font-bold text-slate-700">
-              BOE Number (Primary ID) *
+              Work Order No *
             </label>
             <input
               value={boe}
               onChange={(e) => setBoe(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && confirm()}
-              placeholder="BOE-10024"
+              placeholder="e.g. WO-10024"
               className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-3 text-xl font-bold uppercase outline-none focus:border-blue-300 focus:ring-[3px] focus:ring-blue-100"
             />
           </div>
@@ -254,7 +254,7 @@ export default function BillingPage() {
             )}
             <div className="my-3 border-t border-dashed border-slate-200" />
             <div className="mb-4 flex flex-col gap-1.5 text-left text-xs">
-              <TokenRow k="BOE NO:" v={boe || lastBilled?.boe || "—"} />
+              <TokenRow k="WORK ORDER NO:" v={boe || lastBilled?.boe || "—"} />
               <TokenRow k="AGENT / CHA:" v={agent || lastBilled?.billingAgent || lastBilled?.agent || "—"} />
               <TokenRow 
                 k="INVOICE NO:" 
@@ -383,7 +383,7 @@ export default function BillingPage() {
               <span className="text-blue-400 font-bold">✓</span> Validate that the driver has the correct gate pass and entry token.
             </p>
             <p className="flex items-start gap-2">
-              <span className="text-blue-400 font-bold">✓</span> Each Bill of Entry (BoE) requires its own independent payment and token.
+              <span className="text-blue-400 font-bold">✓</span> Each Work Order requires its own independent payment and token.
             </p>
             <p className="flex items-start gap-2">
               <span className="text-blue-400 font-bold">✓</span> The billing system creates separate billing tokens. Drivers will present these at the Loading Area.

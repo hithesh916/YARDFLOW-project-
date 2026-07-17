@@ -86,7 +86,7 @@ export async function printToken(ticket: Ticket): Promise<void> {
     <div class="divider"></div>
     <div class="rows">
       ${row("VEHICLE", ticket.vehicle)}
-      ${row("BOE NO", ticket.boe)}
+      ${row("WORK ORDER NO", ticket.boe)}
       ${row("CHA / AGENT", ticket.agent)}
       ${row("ENTRY TIME", fmtTime(entry))}
       ${row("ENTRY DATE", fmtDate(entry))}
@@ -241,7 +241,7 @@ export async function printBillingToken(ticket: Ticket): Promise<void> {
     <div class="eyebrow">BILLING PASS</div>
     <div class="divider"></div>
     <div class="rows">
-      ${row("BOE NO", ticket.boe)}
+      ${row("WORK ORDER NO", ticket.boe)}
       ${row("CHA / AGENT", ticket.agent)}
       ${row("INVOICE NO", ticket.invoice || "N/A")}
       ${row("BILLING TIME", fmtTime(new Date()))}
@@ -398,7 +398,7 @@ export async function printLoadingToken(ticket: Ticket): Promise<void> {
     <div class="divider"></div>
     <div class="rows">
       ${row("VEHICLE", ticket.vehicle)}
-      ${row("BOE / WORK ORDER", ticket.boe)}
+      ${row("WORK ORDER NO", ticket.boe)}
       ${row("CHA / AGENT", ticket.agent)}
       ${row("GATE TOKEN NO", ticket.manualGateToken || `G-${String(ticket.serial).padStart(3, "0")}`)}
       ${row("BILLING TOKEN NO", ticket.manualBillingToken || `B-${String(ticket.billingSerial ?? ticket.serial).padStart(3, "0")}`)}
