@@ -143,6 +143,10 @@ export default function BillingPage() {
   return (    <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_380px]">
       {/* Left panel: Billing Desk selection and form */}
       <Panel className="p-8">
+        <h2 className="mb-6 flex items-center gap-2 text-lg font-bold text-slate-800">
+          <ReceiptText className="text-blue-600" size={20} />
+          Billing Pass Generation
+        </h2>
 
         <div className="flex flex-col gap-6">
           {/* BOE Number (Primary) */}
