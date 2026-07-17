@@ -15,9 +15,9 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
+  --font-sans: var(--font-sans);
   --font-mono: var(--font-geist-mono);
-  --font-heading: var(--font-geist-sans);
+  --font-heading: var(--font-sans);
 
   /* Semantic brand tokens (use as bg-action, text-ok, border-danger, ...) */
   --color-action: #f97316;
@@ -64,86 +64,86 @@
   --radius-xl: calc(var(--radius) * 1.4);
   --radius-2xl: calc(var(--radius) * 1.8);
   --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
 }
 
 :root {
-  --radius: 0.5rem;
+  --radius: 0.625rem; /* slate-50 */ /* slate-900 */
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.148 0.004 228.8);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.148 0.004 228.8);
 
-  --background: #f8fafc; /* slate-50 */
-  --foreground: #0f172a; /* slate-900 */
-  --card: #ffffff;
-  --card-foreground: #0f172a;
-  --popover: #ffffff;
-  --popover-foreground: #0f172a;
+  --primary: oklch(0.218 0.008 223.9); /* blue-600 */
+  --primary-foreground: oklch(0.987 0.002 197.1);
+  --secondary: oklch(0.963 0.002 197.1); /* slate-100 */
+  --secondary-foreground: oklch(0.218 0.008 223.9); /* slate-700 */
+  --muted: oklch(0.963 0.002 197.1);
+  --muted-foreground: oklch(0.56 0.021 213.5); /* slate-500 */
+  --accent: oklch(0.963 0.002 197.1); /* blue-50 — subtle brand hover */
+  --accent-foreground: oklch(0.218 0.008 223.9); /* blue-700 */
+  --destructive: oklch(0.577 0.245 27.325); /* red-600 */
 
-  --primary: #2563eb; /* blue-600 */
-  --primary-foreground: #ffffff;
-  --secondary: #f1f5f9; /* slate-100 */
-  --secondary-foreground: #334155; /* slate-700 */
-  --muted: #f1f5f9;
-  --muted-foreground: #64748b; /* slate-500 */
-  --accent: #eff6ff; /* blue-50 — subtle brand hover */
-  --accent-foreground: #1d4ed8; /* blue-700 */
-  --destructive: #dc2626; /* red-600 */
-
-  --border: #e2e8f0; /* slate-200 */
-  --input: #e2e8f0;
-  --ring: #2563eb; /* blue-600 */
+  --border: oklch(0.925 0.005 214.3); /* slate-200 */
+  --input: oklch(0.925 0.005 214.3);
+  --ring: oklch(0.723 0.014 214.4); /* blue-600 */
 
   /* Reports charting: blue → slate progression */
-  --chart-1: #2563eb;
-  --chart-2: #60a5fa;
-  --chart-3: #f97316;
-  --chart-4: #059669;
-  --chart-5: #94a3b8;
+  --chart-1: oklch(0.855 0.138 181.071);
+  --chart-2: oklch(0.704 0.14 182.503);
+  --chart-3: oklch(0.6 0.118 184.704);
+  --chart-4: oklch(0.511 0.096 186.391);
+  --chart-5: oklch(0.437 0.078 188.216);
 
-  --sidebar: #ffffff;
-  --sidebar-foreground: #0f172a;
-  --sidebar-primary: #2563eb;
-  --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #eff6ff;
-  --sidebar-accent-foreground: #1d4ed8;
-  --sidebar-border: #e2e8f0;
-  --sidebar-ring: #2563eb;
+  --sidebar: oklch(0.987 0.002 197.1);
+  --sidebar-foreground: oklch(0.148 0.004 228.8);
+  --sidebar-primary: oklch(0.218 0.008 223.9);
+  --sidebar-primary-foreground: oklch(0.987 0.002 197.1);
+  --sidebar-accent: oklch(0.963 0.002 197.1);
+  --sidebar-accent-foreground: oklch(0.218 0.008 223.9);
+  --sidebar-border: oklch(0.925 0.005 214.3);
+  --sidebar-ring: oklch(0.723 0.014 214.4);
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.148 0.004 228.8);
 }
 
 .dark {
-  --background: #090d16; /* deep premium dark blue/slate */
-  --foreground: #f8fafc; /* slate-50 */
-  --card: #121824; /* card color matching dashboard/login style */
-  --card-foreground: #f8fafc;
-  --popover: #121824;
-  --popover-foreground: #f8fafc;
+  --background: oklch(0.148 0.004 228.8); /* deep premium dark blue/slate */
+  --foreground: oklch(0.987 0.002 197.1); /* slate-50 */
+  --card: oklch(0.218 0.008 223.9); /* card color matching dashboard/login style */
+  --card-foreground: oklch(0.987 0.002 197.1);
+  --popover: oklch(0.218 0.008 223.9);
+  --popover-foreground: oklch(0.987 0.002 197.1);
 
-  --primary: #3b82f6; /* blue-500 */
-  --primary-foreground: #ffffff;
-  --secondary: #1e293b; /* slate-800 */
-  --secondary-foreground: #cbd5e1; /* slate-300 */
-  --muted: #141c2c;
-  --muted-foreground: #94a3b8; /* slate-400 */
-  --accent: #1e293b;
-  --accent-foreground: #3b82f6;
-  --destructive: #ef4444;
+  --primary: oklch(0.925 0.005 214.3); /* blue-500 */
+  --primary-foreground: oklch(0.218 0.008 223.9);
+  --secondary: oklch(0.275 0.011 216.9); /* slate-800 */
+  --secondary-foreground: oklch(0.987 0.002 197.1); /* slate-300 */
+  --muted: oklch(0.275 0.011 216.9);
+  --muted-foreground: oklch(0.723 0.014 214.4); /* slate-400 */
+  --accent: oklch(0.275 0.011 216.9);
+  --accent-foreground: oklch(0.987 0.002 197.1);
+  --destructive: oklch(0.704 0.191 22.216);
 
-  --border: #1e293b;
-  --input: #1e293b;
-  --ring: #3b82f6;
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.56 0.021 213.5);
 
   /* Reports charting: blue → slate progression for dark mode */
-  --chart-1: #3b82f6;
-  --chart-2: #60a5fa;
-  --chart-3: #f97316;
-  --chart-4: #10b981;
-  --chart-5: #64748b;
+  --chart-1: oklch(0.855 0.138 181.071);
+  --chart-2: oklch(0.704 0.14 182.503);
+  --chart-3: oklch(0.6 0.118 184.704);
+  --chart-4: oklch(0.511 0.096 186.391);
+  --chart-5: oklch(0.437 0.078 188.216);
 
-  --sidebar: #0e131f;
-  --sidebar-foreground: #f8fafc;
-  --sidebar-primary: #3b82f6;
-  --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #1e293b;
-  --sidebar-accent-foreground: #60a5fa;
-  --sidebar-border: #1e293b;
-  --sidebar-ring: #3b82f6;
+  --sidebar: oklch(0.218 0.008 223.9);
+  --sidebar-foreground: oklch(0.987 0.002 197.1);
+  --sidebar-primary: oklch(0.488 0.243 264.376);
+  --sidebar-primary-foreground: oklch(0.987 0.002 197.1);
+  --sidebar-accent: oklch(0.275 0.011 216.9);
+  --sidebar-accent-foreground: oklch(0.987 0.002 197.1);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: oklch(0.56 0.021 213.5);
 }
 
 @layer base {
@@ -181,7 +181,7 @@
       background-color: var(--card) !important;
     }
   }
-  
+
   /* Text overrides */
   .text-slate-900 {
     color: #f8fafc !important; /* slate-50 */
@@ -234,7 +234,7 @@
   .focus\:ring-blue-100:focus {
     --tw-ring-color: rgba(59, 130, 246, 0.15) !important;
   }
-  
+
   /* Specific styling overrides for lists/inputs/shadows */
   .shadow-sm {
     box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.3) !important;
@@ -264,7 +264,7 @@
   .text-blue-700 {
     color: #60a5fa !important;
   }
-  
+
   /* Pill tone overrides */
   .bg-slate-100 {
     background-color: rgba(148, 163, 184, 0.1) !important;
