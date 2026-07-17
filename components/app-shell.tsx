@@ -380,12 +380,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <Menu size={18} />
           </button>
 
-          {pathname !== "/billing" && (
           <div className="min-w-0 flex-1 sm:flex-initial">
             <h1 className="text-base sm:text-xl font-extrabold leading-tight truncate">{title}</h1>
             <p className="text-[10px] sm:text-xs text-slate-400 truncate">{subtitle}</p>
           </div>
-          )}
 
           <div className="hidden md:flex flex-1 justify-center">
             <div className="relative w-full max-w-[420px]">
