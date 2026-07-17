@@ -1,12 +1,14 @@
 import QRCode from "qrcode";
 import type { Ticket } from "./types";
 import { fmtDate, fmtTime } from "./format";
+import { useStore } from "./store";
 
 /**
  * Prints a single gate-entry token slip optimized for 58mm thermal printers.
  */
 export async function printToken(ticket: Ticket): Promise<void> {
   const entry = new Date(ticket.entryTime);
+  const settings = useStore.getState().settings;
   const row = (k: string, v: string) =>
     `<div class="row"><span class="k">${k}</span><span class="v">${escapeHtml(
       v,
@@ -25,52 +27,95 @@ export async function printToken(ticket: Ticket): Promise<void> {
     color: #000;
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
-    font-size: 14px;
+    font-size: 13px;
+    line-height: 1.35;
   }
   @page { size: 80mm 125mm; margin: 0mm; }
   .ticket {
     width: 72mm;
     margin: 0 auto;
-    padding: 10px 6px;
+    padding: 12px 8px;
     border: none;
   }
-  .brand { text-align: center; }
-  .logo {
-    width: 36px; height: 36px; margin: 0 auto 6px;
-    background: #000; color: #fff; border-radius: 8px;
-    display: flex; align-items: center; justify-content: center;
-    font-weight: 800; font-size: 15px; letter-spacing: .04em;
-  }
-  .name { font-weight: 800; font-size: 16px; margin: 0; text-transform: uppercase; }
-  .sub { font-size: 11px; color: #000; margin: 2px 0 0; }
-  .token-badge {
+  .brand {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
     text-align: center;
-    margin: 10px 0 6px;
+    margin-bottom: 8px;
   }
-  .token-badge span {
-    color: #000;
-    font-size: 19px;
+  .name {
+    font-weight: 850;
+    font-size: 17px;
+    margin: 0;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+  .terminal-lbl {
+    font-size: 9px;
+    font-weight: 700;
+    color: #444;
+    text-transform: uppercase;
+    margin-top: 2px;
+  }
+  .token-badge {
+    border: 2px solid #000;
+    border-radius: 6px;
+    padding: 6px 10px;
+    text-align: center;
+    margin: 8px 0;
+    background: #fff;
+  }
+  .token-badge .lbl {
+    font-size: 8px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    color: #555;
+    text-transform: uppercase;
+    margin-bottom: 1px;
+  }
+  .token-badge .val {
+    font-size: 20px;
     font-weight: 900;
-    letter-spacing: 0.02em;
-    display: inline-block;
+    color: #000;
   }
   .eyebrow {
-    text-align: center; font-size: 11px; font-weight: 800; letter-spacing: .1em;
-    color: #000; margin: 8px 0 6px; text-transform: uppercase;
+    text-align: center;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    background: #e8e8e8;
+    padding: 3.5px;
+    border-radius: 4px;
+    margin-bottom: 8px;
   }
-  .divider { border-top: 1.5px dashed #000; margin: 10px 0; }
-  .rows { font-size: 14px; }
-  .row { display: flex; justify-content: space-between; padding: 3.5px 0; }
-  .row .k { color: #000; }
-  .row .v { font-weight: 700; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; text-align: right; word-break: break-all; color: #000; }
+  .divider { border-top: 1.5px dashed #000; margin: 8px 0; }
+  .rows { display: flex; flex-direction: column; gap: 5px; }
+  .row { display: flex; justify-content: space-between; padding: 2px 0; }
+  .row .k { color: #555; font-weight: 600; font-size: 11px; text-transform: uppercase; }
+  .row .v { font-weight: 700; text-align: right; word-break: break-all; color: #000; font-size: 12px; }
   .valid {
-    text-align: center; font-size: 11px; font-weight: 800; letter-spacing: .05em;
-    color: #000; margin: 8px 0 6px;
+    text-align: center;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    border: 1px dashed #000;
+    padding: 5px;
+    border-radius: 4px;
+    margin: 8px 0 4px;
+    text-transform: uppercase;
   }
-  .note { text-align: center; font-size: 11px; color: #000; margin: 4px 0 0; line-height: 1.3; }
+  .note { text-align: center; font-size: 10px; color: #444; margin: 4px 0 0; line-height: 1.25; }
   .foot {
-    text-align: center; font-size: 10px; color: #000; margin-top: 10px;
-    border-top: 1px solid #000; padding-top: 8px; letter-spacing: .02em;
+    text-align: center;
+    font-size: 8px;
+    color: #666;
+    margin-top: 10px;
+    border-top: 1px solid #e5e5e5;
+    padding-top: 6px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
   }
 </style>
 </head>
@@ -78,11 +123,13 @@ export async function printToken(ticket: Ticket): Promise<void> {
   <div class="ticket">
     <div class="brand">
       <p class="name">YARDFLOW MANAGER</p>
+      ${settings?.terminalName ? `<div class="terminal-lbl">${escapeHtml(settings.terminalName)}</div>` : ""}
     </div>
     <div class="token-badge">
-      <span>TOKEN NO: G-${String(ticket.serial).padStart(3, "0")}</span>
+      <div class="lbl">GATE ENTRY TOKEN</div>
+      <div class="val">G-${String(ticket.serial).padStart(3, "0")}</div>
     </div>
-    <div class="eyebrow">GATE ENTRY TOKEN</div>
+    <div class="eyebrow">Gate Entry Pass</div>
     <div class="divider"></div>
     <div class="rows">
       ${row("VEHICLE", ticket.vehicle)}
@@ -139,6 +186,7 @@ export async function printToken(ticket: Ticket): Promise<void> {
  */
 export async function printBillingToken(ticket: Ticket): Promise<void> {
   const entry = new Date(ticket.entryTime);
+  const settings = useStore.getState().settings;
   const isPaid = ticket.paymentStatus === "Paid";
   const row = (k: string, v: string) =>
     `<div class="row"><span class="k">${k}</span><span class="v">${escapeHtml(
@@ -158,75 +206,110 @@ export async function printBillingToken(ticket: Ticket): Promise<void> {
     color: #000;
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
-    font-size: 14px;
+    font-size: 13px;
+    line-height: 1.35;
   }
   @page { size: 80mm 125mm; margin: 0mm; }
   .ticket {
     width: 72mm;
     margin: 0 auto;
-    padding: 10px 6px;
+    padding: 12px 8px;
     border: none;
   }
-  .brand { text-align: center; }
-  .logo {
-    width: 36px; height: 36px; margin: 0 auto 6px;
-    background: #000; color: #fff; border-radius: 8px;
-    display: flex; align-items: center; justify-content: center;
-    font-weight: 800; font-size: 15px; letter-spacing: .04em;
+  .brand {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    margin-bottom: 8px;
   }
-  .name { font-weight: 800; font-size: 16px; margin: 0; text-transform: uppercase; }
-  .sub { display: none; }
+  .name {
+    font-weight: 850;
+    font-size: 17px;
+    margin: 0;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+  .terminal-lbl {
+    font-size: 9px;
+    font-weight: 700;
+    color: #444;
+    text-transform: uppercase;
+    margin-top: 2px;
+  }
   .token-badge {
+    border: 2px solid #000;
+    border-radius: 6px;
+    padding: 6px 10px;
+    text-align: center;
+    margin: 8px 0;
+    background: #fff;
+  }
+  .token-badge .lbl {
+    font-size: 8px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    color: #555;
+    text-transform: uppercase;
+    margin-bottom: 1px;
+  }
+  .token-badge .val {
+    font-size: 20px;
+    font-weight: 900;
+    color: #000;
+  }
+  .eyebrow {
+    text-align: center;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    background: #e8e8e8;
+    padding: 3.5px;
+    border-radius: 4px;
+    margin-bottom: 8px;
+  }
+  .divider { border-top: 1.5px dashed #000; margin: 8px 0; }
+  .rows { display: flex; flex-direction: column; gap: 5px; }
+  .row { display: flex; justify-content: space-between; padding: 2px 0; }
+  .row .k { color: #555; font-weight: 600; font-size: 11px; text-transform: uppercase; }
+  .row .v { font-weight: 700; text-align: right; word-break: break-all; color: #000; font-size: 12px; }
+  .payment-status-badge {
     text-align: center;
     margin: 10px 0 6px;
   }
-  .token-badge span {
-    color: #000;
-    font-size: 19px;
-    font-weight: 900;
-    letter-spacing: 0.02em;
-    display: inline-block;
-  }
-  .eyebrow {
-    text-align: center; font-size: 11px; font-weight: 800; letter-spacing: .1em;
-    color: #000; margin: 8px 0 6px; text-transform: uppercase;
-  }
-  .divider { border-top: 1.5px dashed #000; margin: 10px 0; }
-  .rows { font-size: 14px; }
-  .row { display: flex; justify-content: space-between; padding: 3.5px 0; }
-  .row .k { color: #000; }
-  .row .v { font-weight: 700; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; text-align: right; word-break: break-all; color: #000; }
-  
-  .payment-status-badge {
-    text-align: center;
-    margin: 15px 0 8px;
-  }
   .payment-status-badge span {
     color: #000;
-    font-size: 28px;
+    font-size: 20px;
     font-weight: 900;
-    padding: 8px 24px;
-    border: 3.5px solid #000;
-    border-radius: 6px;
+    padding: 6px 18px;
+    border: 2.5px solid #000;
+    border-radius: 5px;
     letter-spacing: 0.04em;
     display: inline-block;
     text-transform: uppercase;
   }
-  .payment-status-badge.paid span {
-    background: transparent;
-  }
-  .payment-status-badge.unpaid span {
-    background: transparent;
-  }
-
   .valid {
-    text-align: center; font-size: 11px; font-weight: 800; letter-spacing: .05em;
-    color: #000; margin: 8px 0 6px;
+    text-align: center;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    border: 1px dashed #000;
+    padding: 5px;
+    border-radius: 4px;
+    margin: 8px 0 4px;
+    text-transform: uppercase;
   }
-  .note { text-align: center; font-size: 11px; color: #000; margin: 4px 0 0; line-height: 1.3; }
+  .note { text-align: center; font-size: 10px; color: #444; margin: 4px 0 0; line-height: 1.25; }
   .foot {
-    text-align: center; font-size: 10px; color: #000; margin-top: 10px;
-    border-top: 1px solid #000; padding-top: 8px; letter-spacing: .02em;
+    text-align: center;
+    font-size: 8px;
+    color: #666;
+    margin-top: 10px;
+    border-top: 1px solid #e5e5e5;
+    padding-top: 6px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
   }
 </style>
 </head>
@@ -234,11 +317,13 @@ export async function printBillingToken(ticket: Ticket): Promise<void> {
   <div class="ticket">
     <div class="brand">
       <p class="name">YARDFLOW MANAGER</p>
+      ${settings?.terminalName ? `<div class="terminal-lbl">${escapeHtml(settings.terminalName)}</div>` : ""}
     </div>
     <div class="token-badge">
-      <span>TOKEN NO: B-${String(ticket.billingSerial ?? ticket.serial).padStart(3, "0")}</span>
+      <div class="lbl">BILLING PASS</div>
+      <div class="val">B-${String(ticket.billingSerial ?? ticket.serial).padStart(3, "0")}</div>
     </div>
-    <div class="eyebrow">BILLING PASS</div>
+    <div class="eyebrow">Billing Pass</div>
     <div class="divider"></div>
     <div class="rows">
       ${row("WORK ORDER NO", ticket.boe)}
@@ -249,7 +334,7 @@ export async function printBillingToken(ticket: Ticket): Promise<void> {
     </div>
     <div class="divider"></div>
     
-    <div class="payment-status-badge ${isPaid ? "paid" : "unpaid"}">
+    <div class="payment-status-badge">
       <span>${isPaid ? "PAID" : "NOT PAID"}</span>
     </div>
     
@@ -300,8 +385,8 @@ export async function printBillingToken(ticket: Ticket): Promise<void> {
  */
 export async function printLoadingToken(ticket: Ticket): Promise<void> {
   const loadingTime = ticket.loadingEnd ? new Date(ticket.loadingEnd) : new Date();
+  const settings = useStore.getState().settings;
   
-  // Generate QR code representing the vehicle ID, sized to fit 72mm layout
   const qr = await QRCode.toDataURL(ticket.vehicle, {
     width: 240,
     margin: 0,
@@ -326,63 +411,106 @@ export async function printLoadingToken(ticket: Ticket): Promise<void> {
     color: #000;
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
-    font-size: 14px;
+    font-size: 13px;
+    line-height: 1.35;
   }
   @page { size: 80mm 165mm; margin: 0mm; }
   .ticket {
     width: 72mm;
     margin: 0 auto;
-    padding: 10px 6px;
+    padding: 12px 8px;
     border: none;
   }
-  .brand { text-align: center; }
-  .logo {
-    width: 36px; height: 36px; margin: 0 auto 6px;
-    background: #000; color: #fff; border-radius: 8px;
-    display: flex; align-items: center; justify-content: center;
-    font-weight: 800; font-size: 15px; letter-spacing: .04em;
-  }
-  .name { font-weight: 800; font-size: 16px; margin: 0; text-transform: uppercase; }
-  .sub { display: none; }
-  .token-badge {
+  .brand {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
     text-align: center;
-    margin: 10px 0 6px;
+    margin-bottom: 8px;
   }
-  .token-badge span {
-    color: #000;
-    font-size: 19px;
+  .name {
+    font-weight: 850;
+    font-size: 17px;
+    margin: 0;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+  .terminal-lbl {
+    font-size: 9px;
+    font-weight: 700;
+    color: #444;
+    text-transform: uppercase;
+    margin-top: 2px;
+  }
+  .token-badge {
+    border: 2px solid #000;
+    border-radius: 6px;
+    padding: 6px 10px;
+    text-align: center;
+    margin: 8px 0;
+    background: #fff;
+  }
+  .token-badge .lbl {
+    font-size: 8px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    color: #555;
+    text-transform: uppercase;
+    margin-bottom: 1px;
+  }
+  .token-badge .val {
+    font-size: 20px;
     font-weight: 900;
-    letter-spacing: 0.02em;
-    display: inline-block;
+    color: #000;
   }
   .eyebrow {
-    text-align: center; font-size: 11px; font-weight: 800; letter-spacing: .1em;
-    color: #000; margin: 8px 0 6px; text-transform: uppercase;
-  }
-  .divider { border-top: 1.5px dashed #000; margin: 10px 0; }
-  .rows { font-size: 14px; }
-  .row { display: flex; justify-content: space-between; padding: 3.5px 0; }
-  .row .k { color: #000; }
-  .row .v { font-weight: 700; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; text-align: right; word-break: break-all; color: #000; }
-  
-  .qr-code-section {
     text-align: center;
-    margin: 12px 0 6px;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    background: #e8e8e8;
+    padding: 3.5px;
+    border-radius: 4px;
+    margin-bottom: 8px;
+  }
+  .divider { border-top: 1.5px dashed #000; margin: 8px 0; }
+  .rows { display: flex; flex-direction: column; gap: 5px; }
+  .row { display: flex; justify-content: space-between; padding: 2px 0; }
+  .row .k { color: #555; font-weight: 600; font-size: 11px; text-transform: uppercase; }
+  .row .v { font-weight: 700; text-align: right; word-break: break-all; color: #000; font-size: 12px; }
+  .qr-code-section {
+    display: flex;
+    justify-content: center;
+    margin: 8px 0;
   }
   .qr-code-section img {
-    width: 140px;
-    height: 140px;
-    display: inline-block;
+    width: 90px;
+    height: 90px;
+    border: 1px solid #000;
+    padding: 2px;
   }
-
   .valid {
-    text-align: center; font-size: 11px; font-weight: 800; letter-spacing: .05em;
-    color: #000; margin: 8px 0 6px;
+    text-align: center;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    border: 1px dashed #000;
+    padding: 5px;
+    border-radius: 4px;
+    margin: 8px 0 4px;
+    text-transform: uppercase;
   }
-  .note { text-align: center; font-size: 11px; color: #000; margin: 4px 0 0; line-height: 1.3; }
+  .note { text-align: center; font-size: 10px; color: #444; margin: 4px 0 0; line-height: 1.25; }
   .foot {
-    text-align: center; font-size: 10px; color: #000; margin-top: 10px;
-    border-top: 1px solid #000; padding-top: 8px; letter-spacing: .02em;
+    text-align: center;
+    font-size: 8px;
+    color: #666;
+    margin-top: 10px;
+    border-top: 1px solid #e5e5e5;
+    padding-top: 6px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
   }
 </style>
 </head>
@@ -390,11 +518,13 @@ export async function printLoadingToken(ticket: Ticket): Promise<void> {
   <div class="ticket">
     <div class="brand">
       <p class="name">YARDFLOW MANAGER</p>
+      ${settings?.terminalName ? `<div class="terminal-lbl">${escapeHtml(settings.terminalName)}</div>` : ""}
     </div>
     <div class="token-badge">
-      <span>TOKEN NO: L-${String(ticket.loadingSerial ?? ticket.serial).padStart(3, "0")}</span>
+      <div class="lbl">LOADING TOKEN</div>
+      <div class="val">L-${String(ticket.loadingSerial ?? ticket.serial).padStart(3, "0")}</div>
     </div>
-    <div class="eyebrow">LOADING DISPATCH PASS</div>
+    <div class="eyebrow">Loading Dispatch Pass</div>
     <div class="divider"></div>
     <div class="rows">
       ${row("VEHICLE", ticket.vehicle)}
