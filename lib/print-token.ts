@@ -30,12 +30,14 @@ export async function printToken(ticket: Ticket): Promise<void> {
     font-size: 13px;
     line-height: 1.35;
   }
-  @page { size: 80mm 95mm; margin: 0mm; }
+  @page { size: 80mm 120mm; margin: 0mm; }
   .ticket {
     width: 72mm;
     margin: 0 auto;
     padding: 12px 8px;
     border: none;
+    page-break-inside: avoid;
+    break-inside: avoid;
   }
   .brand {
     display: flex;
@@ -209,12 +211,14 @@ export async function printBillingToken(ticket: Ticket): Promise<void> {
     font-size: 13px;
     line-height: 1.35;
   }
-  @page { size: 80mm 105mm; margin: 0mm; }
+  @page { size: 80mm 130mm; margin: 0mm; }
   .ticket {
     width: 72mm;
     margin: 0 auto;
     padding: 12px 8px;
     border: none;
+    page-break-inside: avoid;
+    break-inside: avoid;
   }
   .brand {
     display: flex;
@@ -414,12 +418,14 @@ export async function printLoadingToken(ticket: Ticket): Promise<void> {
     font-size: 13px;
     line-height: 1.35;
   }
-  @page { size: 80mm 130mm; margin: 0mm; }
+  @page { size: 80mm 160mm; margin: 0mm; }
   .ticket {
     width: 72mm;
     margin: 0 auto;
     padding: 12px 8px;
     border: none;
+    page-break-inside: avoid;
+    break-inside: avoid;
   }
   .brand {
     display: flex;
