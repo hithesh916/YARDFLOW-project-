@@ -28,6 +28,13 @@ export default function LoadingPage() {
   const [boe, setBoe] = useState("");
   const [agent, setAgent] = useState("");
   const [remarks, setRemarks] = useState("");
+  const [gateToken, setGateToken] = useState("");
+  const [billingToken, setBillingToken] = useState("");
+  const [selectedTicketIds, setSelectedTicketIds] = useState<string[]>([]);
+  const [showSearchModal, setShowSearchModal] = useState(false);
+  const [modalSearch, setModalSearch] = useState("");
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+
   const [busy, setBusy] = useState(false);
   const [lastLoaded, setLastLoaded] = useState<Ticket | null>(null);
   const [matchedTicket, setMatchedTicket] = useState<Ticket | null>(null);
@@ -40,17 +47,23 @@ export default function LoadingPage() {
       setMatchedTicket(null);
       return;
     }
+    // Only auto-populate if the user has NOT manually set multiple selected IDs via the search modal
+    if (selectedTicketIds.length > 1) return;
+
     const matched = tickets.find(
       (t) => t.boe.toUpperCase() === b && t.status === "awaiting_loading"
     );
     if (matched) {
       setAgent(matched.billingAgent || matched.agent);
       setRemarks(matched.loadingRemarks || "");
+      setGateToken(`G-${String(matched.serial).padStart(3, "0")}`);
+      setBillingToken(`B-${String(matched.billingSerial ?? matched.serial).padStart(3, "0")}`);
       setMatchedTicket(matched);
+      setSelectedTicketIds([matched.id]);
     } else {
       setMatchedTicket(null);
     }
-  }, [boe, tickets]);
+  }, [boe, tickets, selectedTicketIds]);
 
   const recentDone = [...tickets]
     .filter((t) =>
@@ -65,7 +78,10 @@ export default function LoadingPage() {
     setBoe(t.boe);
     setAgent(t.billingAgent || t.agent);
     setRemarks(t.loadingRemarks || "");
+    setGateToken(`G-${String(t.serial).padStart(3, "0")}`);
+    setBillingToken(`B-${String(t.billingSerial ?? t.serial).padStart(3, "0")}`);
     setMatchedTicket(t);
+    setSelectedTicketIds([t.id]);
     toast.success(`Loaded details for ${t.vehicle} (WO: ${t.boe})`);
   }
 
@@ -78,50 +94,84 @@ export default function LoadingPage() {
 
     setBusy(true);
 
-    let target = matchedTicket || tickets.find(
-      (t) => t.boe.toUpperCase() === b && t.status === "awaiting_loading"
-    );
+    let targets: Ticket[] = [];
+    if (selectedTicketIds.length > 0) {
+      targets = tickets.filter(t => selectedTicketIds.includes(t.id) && t.status === "awaiting_loading");
+    }
 
-    if (!target) {
+    if (targets.length === 0) {
+      const target = matchedTicket || tickets.find(
+        (t) => t.boe.toUpperCase() === b && t.status === "awaiting_loading"
+      );
+      if (target) {
+        targets = [target];
+      }
+    }
+
+    if (targets.length === 0) {
       toast.error("No active vehicle found with this Work Order No.");
       setBusy(false);
       return;
     }
 
-    const ok = await ticketAction(target.id, "complete-loading", {
-      boe: b,
-      agent: agent.trim(),
-      remarks: remarks.trim(),
-    });
+    let successCount = 0;
+    let lastProcessedTicket: Ticket | null = null;
+
+    for (const target of targets) {
+      const ok = await ticketAction(target.id, "complete-loading", {
+        boe: targets.length === 1 ? b : target.boe,
+        agent: agent.trim(),
+        remarks: remarks.trim(),
+        gateToken: gateToken.trim(),
+        billingToken: billingToken.trim(),
+      });
+      if (ok) {
+        successCount++;
+        const freshTicket = useStore.getState().tickets.find((t) => t.id === target.id);
+        lastProcessedTicket = freshTicket || {
+          ...target,
+          loadingEnd: new Date().toISOString(),
+          loadingAgent: agent.trim() || target.billingAgent || target.agent,
+          loadingRemarks: remarks.trim(),
+          manualGateToken: gateToken.trim() || null,
+          manualBillingToken: billingToken.trim() || null,
+        };
+        await printLoadingToken(lastProcessedTicket);
+      }
+    }
 
     setBusy(false);
 
-    if (ok) {
-      const freshTicket = useStore.getState().tickets.find((t) => t.id === target.id);
-      const printTicket = freshTicket || {
-        ...target,
-        loadingEnd: new Date().toISOString(),
-        loadingAgent: agent.trim() || target.billingAgent || target.agent,
-        loadingRemarks: remarks.trim(),
-      };
-      setLastLoaded(printTicket);
-      await printLoadingToken(printTicket);
+    if (successCount > 0 && lastProcessedTicket) {
+      setLastLoaded(lastProcessedTicket);
       setBoe("");
       setAgent("");
       setRemarks("");
+      setGateToken("");
+      setBillingToken("");
       setMatchedTicket(null);
+      setSelectedTicketIds([]);
+      toast.success(`Successfully loaded and printed ${successCount} pass(es)`);
     }
   }
 
   async function handleSkip() {
-    if (!matchedTicket || busy) return;
+    if (selectedTicketIds.length === 0 || busy) return;
     setBusy(true);
-    const ok = await ticketAction(matchedTicket.id, "skip-loading");
-    if (ok) {
+    let skippedCount = 0;
+    for (const id of selectedTicketIds) {
+      const ok = await ticketAction(id, "skip-loading");
+      if (ok) skippedCount++;
+    }
+    if (skippedCount > 0) {
       setBoe("");
       setAgent("");
       setRemarks("");
+      setGateToken("");
+      setBillingToken("");
       setMatchedTicket(null);
+      setSelectedTicketIds([]);
+      toast.success(`Skipped/Re-queued ${skippedCount} vehicle(s)`);
     }
     setBusy(false);
   }
@@ -136,8 +186,18 @@ export default function LoadingPage() {
         </h2>
 
         <div className="mb-5">
-          <label className="mb-2 block text-[13px] font-bold text-slate-700">
-            Work Order No / BOE Number *
+          <label className="mb-2 flex items-center justify-between text-[13px] font-bold text-slate-700">
+            <span>Work Order No / BOE Number *</span>
+            <button
+              type="button"
+              onClick={() => {
+                setSelectedIds(selectedTicketIds);
+                setShowSearchModal(true);
+              }}
+              className="text-xs font-bold text-blue-600 hover:text-blue-700 flex items-center gap-1 cursor-pointer"
+            >
+              🔍 Search Queue
+            </button>
           </label>
           <input
             value={boe}
@@ -162,12 +222,13 @@ export default function LoadingPage() {
           </div>
           <div>
             <label className="mb-2 block text-[13px] font-bold text-slate-700">
-              Gate Token No (Read Only)
+              Gate Token No
             </label>
             <input
-              value={matchedTicket ? `G-${String(matchedTicket.serial).padStart(3, "0")}` : "—"}
-              readOnly
-              className="w-full rounded-lg border border-slate-200 bg-transparent px-3.5 py-3 text-sm font-semibold text-slate-500 dark:text-slate-400 outline-none cursor-not-allowed"
+              value={gateToken}
+              onChange={(e) => setGateToken(e.target.value)}
+              placeholder="e.g. G-001"
+              className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-3 text-sm font-semibold outline-none focus:border-blue-300 focus:ring-[3px] focus:ring-blue-100"
             />
           </div>
         </div>
@@ -175,12 +236,13 @@ export default function LoadingPage() {
         <div className="mb-5 grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div>
             <label className="mb-2 block text-[13px] font-bold text-slate-700">
-              Billing Token No (Read Only)
+              Billing Token No
             </label>
             <input
-              value={matchedTicket ? `B-${String(matchedTicket.billingSerial ?? matchedTicket.serial).padStart(3, "0")}` : "—"}
-              readOnly
-              className="w-full rounded-lg border border-slate-200 bg-transparent px-3.5 py-3 text-sm font-semibold text-slate-500 dark:text-slate-400 outline-none cursor-not-allowed"
+              value={billingToken}
+              onChange={(e) => setBillingToken(e.target.value)}
+              placeholder="e.g. B-001"
+              className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-3 text-sm font-semibold outline-none focus:border-blue-300 focus:ring-[3px] focus:ring-blue-100"
             />
           </div>
           <div>
@@ -247,8 +309,8 @@ export default function LoadingPage() {
             <div className="mb-4 flex flex-col gap-1.5 text-left text-xs">
               <TokenRow k="WORK ORDER NO:" v={boe || lastLoaded?.boe || "—"} />
               <TokenRow k="CHA / AGENT:" v={agent || lastLoaded?.loadingAgent || lastLoaded?.agent || "—"} />
-              <TokenRow k="GATE TOKEN NO:" v={matchedTicket ? `G-${String(matchedTicket.serial).padStart(3, "0")}` : (lastLoaded ? `G-${String(lastLoaded.serial).padStart(3, "0")}` : "—")} />
-              <TokenRow k="BILLING TOKEN:" v={matchedTicket ? `B-${String(matchedTicket.billingSerial ?? matchedTicket.serial).padStart(3, "0")}` : (lastLoaded ? `B-${String(lastLoaded.billingSerial ?? lastLoaded.serial).padStart(3, "0")}` : "—")} />
+              <TokenRow k="GATE TOKEN NO:" v={gateToken || (lastLoaded?.manualGateToken || (lastLoaded ? `G-${String(lastLoaded.serial).padStart(3, "0")}` : "—"))} />
+              <TokenRow k="BILLING TOKEN:" v={billingToken || (lastLoaded?.manualBillingToken || (lastLoaded ? `B-${String(lastLoaded.billingSerial ?? lastLoaded.serial).padStart(3, "0")}` : "—"))} />
               <TokenRow
                 k="LOADING TIME:"
                 v={boe ? fmtTime(new Date().toISOString()) : (lastLoaded?.loadingEnd ? fmtTime(lastLoaded.loadingEnd) : "—")}
@@ -353,6 +415,114 @@ export default function LoadingPage() {
           </motion.div>
         </div>
       </div>
+
+      {showSearchModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-lg rounded-xl bg-white p-6 shadow-2xl dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
+            <div className="mb-4 flex items-center justify-between">
+              <h3 className="text-base font-extrabold text-slate-900 dark:text-white uppercase tracking-wider">
+                Select Awaiting Loading Queue
+              </h3>
+              <button
+                onClick={() => setShowSearchModal(false)}
+                className="text-slate-400 hover:text-slate-650 dark:hover:text-slate-205 text-sm font-bold cursor-pointer"
+              >
+                ✕ Close
+              </button>
+            </div>
+
+            <input
+              type="text"
+              value={modalSearch}
+              onChange={(e) => setModalSearch(e.target.value)}
+              placeholder="Search by Vehicle or BOE..."
+              className="mb-4 w-full rounded-lg border border-slate-200 bg-slate-50 dark:bg-slate-800 dark:border-slate-700 px-3 py-2 text-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
+            />
+
+            <div className="max-h-60 overflow-y-auto mb-5 border border-slate-100 dark:border-slate-800 rounded-lg p-2 flex flex-col gap-2 bg-slate-50/50">
+              {tickets
+                .filter(
+                  (t) =>
+                    t.status === "awaiting_loading" &&
+                    (t.vehicle.toLowerCase().includes(modalSearch.toLowerCase()) ||
+                      t.boe.toLowerCase().includes(modalSearch.toLowerCase()))
+                )
+                .map((t) => {
+                  const isChecked = selectedIds.includes(t.id);
+                  return (
+                    <label
+                      key={t.id}
+                      className="flex items-center gap-3 rounded-lg border border-slate-200 dark:border-slate-800 p-3 hover:bg-slate-100 dark:hover:bg-slate-800/50 cursor-pointer transition-colors"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={isChecked}
+                        onChange={() => {
+                          if (isChecked) {
+                            setSelectedIds(selectedIds.filter((id) => id !== t.id));
+                          } else {
+                            setSelectedIds([...selectedIds, t.id]);
+                          }
+                        }}
+                        className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                      />
+                      <div className="flex-1 text-xs text-left">
+                        <p className="font-extrabold text-slate-800 dark:text-slate-100">{t.vehicle}</p>
+                        <p className="text-[10px] text-slate-400 mt-0.5 font-semibold">
+                          BOE: {t.boe} · Carrier: {t.billingAgent || t.agent}
+                        </p>
+                      </div>
+                      <div className="text-right text-[10px] font-mono text-slate-500 font-extrabold">
+                        B-{String(t.billingSerial ?? t.serial).padStart(3, "0")}
+                      </div>
+                    </label>
+                  );
+                })}
+              {tickets.filter((t) => t.status === "awaiting_loading" && (t.vehicle.toLowerCase().includes(modalSearch.toLowerCase()) || t.boe.toLowerCase().includes(modalSearch.toLowerCase()))).length === 0 && (
+                <p className="text-center text-xs text-slate-400 py-6">No matching vehicles awaiting loading.</p>
+              )}
+            </div>
+
+            <div className="flex justify-end gap-3 border-t border-slate-100 dark:border-slate-800 pt-4">
+              <button
+                onClick={() => setShowSearchModal(false)}
+                className="rounded-lg border border-slate-200 dark:border-slate-700 px-4 py-2 text-xs font-bold text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  const selectedTickets = tickets.filter((t) => selectedIds.includes(t.id));
+                  if (selectedTickets.length > 0) {
+                    setSelectedTicketIds(selectedIds);
+                    setBoe(selectedTickets.map((t) => t.boe).join(", "));
+                    setAgent(selectedTickets[0].billingAgent || selectedTickets[0].agent);
+                    setRemarks(selectedTickets.map((t) => t.loadingRemarks || "").filter(Boolean).join("; "));
+                    setGateToken(
+                      selectedTickets.map((t) => `G-${String(t.serial).padStart(3, "0")}`).join(", ")
+                    );
+                    setBillingToken(
+                      selectedTickets
+                        .map((t) => `B-${String(t.billingSerial ?? t.serial).padStart(3, "0")}`)
+                        .join(", ")
+                    );
+                    if (selectedTickets.length === 1) {
+                      setMatchedTicket(selectedTickets[0]);
+                    } else {
+                      setMatchedTicket(null);
+                    }
+                    toast.success(`Selected ${selectedTickets.length} ticket(s) from queue`);
+                  }
+                  setShowSearchModal(false);
+                }}
+                className="rounded-lg bg-blue-600 px-4 py-2 text-xs font-bold text-white hover:bg-blue-700 cursor-pointer"
+              >
+                Apply Selection
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

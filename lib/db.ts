@@ -349,7 +349,7 @@ export async function createTicket(input: {
 
 export function completeLoading(
   id: string,
-  extra?: { boe?: string; agent?: string; remarks?: string }
+  extra?: { boe?: string; agent?: string; remarks?: string; gateToken?: string; billingToken?: string }
 ): Promise<YardState> {
   return mutate((l, log) => {
     const t = find(l, id);
@@ -362,6 +362,8 @@ export function completeLoading(
       if (extra?.boe) t.boe = extra.boe;
       t.loadingAgent = extra?.agent ? extra.agent.trim() : t.billingAgent || t.agent;
       t.loadingRemarks = extra?.remarks ? extra.remarks.trim() : "";
+      if (extra?.gateToken) t.manualGateToken = extra.gateToken.trim();
+      if (extra?.billingToken) t.manualBillingToken = extra.billingToken.trim();
       log({
         action: "loading_complete",
         ticketId: t.id,

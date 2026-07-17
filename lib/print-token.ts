@@ -400,6 +400,8 @@ export async function printLoadingToken(ticket: Ticket): Promise<void> {
       ${row("VEHICLE", ticket.vehicle)}
       ${row("BOE / WORK ORDER", ticket.boe)}
       ${row("CHA / AGENT", ticket.agent)}
+      ${row("GATE TOKEN NO", ticket.manualGateToken || `G-${String(ticket.serial).padStart(3, "0")}`)}
+      ${row("BILLING TOKEN NO", ticket.manualBillingToken || `B-${String(ticket.billingSerial ?? ticket.serial).padStart(3, "0")}`)}
       ${row("BAY ASSIGNED", ticket.bay)}
       ${row("INVOICE NO", ticket.invoice || "N/A")}
       ${row("COMPLETED TIME", fmtTime(loadingTime))}

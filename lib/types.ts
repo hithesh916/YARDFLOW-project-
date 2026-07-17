@@ -32,6 +32,8 @@ export interface Ticket {
   billingTime?: string | null;
   loadingAgent?: string | null;
   loadingRemarks?: string | null;
+  manualGateToken?: string | null;
+  manualBillingToken?: string | null;
 }
 
 export interface Alert {

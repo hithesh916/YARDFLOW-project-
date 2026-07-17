@@ -28,6 +28,8 @@ export async function POST(
         boe: typeof body.boe === "string" ? body.boe : undefined,
         agent: typeof body.agent === "string" ? body.agent : undefined,
         remarks: typeof body.remarks === "string" ? body.remarks : undefined,
+        gateToken: typeof body.gateToken === "string" ? body.gateToken : undefined,
+        billingToken: typeof body.billingToken === "string" ? body.billingToken : undefined,
       });
       break;
     case "skip-loading":
