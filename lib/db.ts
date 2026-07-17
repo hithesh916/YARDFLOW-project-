@@ -353,7 +353,7 @@ export function completeLoading(
 ): Promise<YardState> {
   return mutate((l, log) => {
     const t = find(l, id);
-    if (t && t.status === "awaiting_loading") {
+    if (t && (t.status === "awaiting_loading" || t.status === "awaiting_billing")) {
       if (l.counters.loadingSerial === undefined) l.counters.loadingSerial = 0;
       l.counters.loadingSerial += 1;
       t.loadingSerial = l.counters.loadingSerial;

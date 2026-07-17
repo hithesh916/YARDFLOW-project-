@@ -94,6 +94,15 @@ export default function DashboardPage() {
   ).length;
   const activeAlerts = alerts.filter((a) => !a.acknowledged);
 
+  // Daily completed counts for each stage
+  const entriesToday = filtered.length;
+  const billedToday = filtered.filter(
+    (t) => !!t.billingSerial || !!t.billingTime || t.status !== "awaiting_billing",
+  ).length;
+  const loadedToday = filtered.filter(
+    (t) => !!t.loadingSerial || !!t.loadingEnd || (t.status !== "awaiting_billing" && t.status !== "awaiting_loading"),
+  ).length;
+
   // Real, derived metrics (no hardcoded numbers).
   const avgLoad = avgMinutes(
     filtered,
@@ -123,37 +132,45 @@ export default function DashboardPage() {
       {/* KPI row */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <Kpi
-          label="PENDING BILLING"
-          value={pad(pendingBilling)}
+          label="ENTRY GATE"
+          value={pad(entriesToday)}
+          icon={<Truck size={18} />}
+          sub={
+            entriesToday > 0
+              ? `${entriesToday} vehicles entered`
+              : "No entries today"
+          }
+        />
+        <Kpi
+          label="BILLING APPROVED"
+          value={pad(billedToday)}
           icon={<ReceiptText size={18} />}
           sub={
-            pendingBilling > 0
-              ? `${pendingBilling} awaiting invoice`
-              : "Queue clear"
+            billedToday > 0
+              ? `${billedToday} invoices billed`
+              : "No billing today"
           }
         />
         <Kpi
-          label="CURRENT LOADING"
-          value={currentLoading}
-          icon={<Truck size={18} />}
-          sub={avgLoad !== null ? `Avg load: ${hm(avgLoad)}` : "Avg load: —"}
+          label="LOADING DISPATCHED"
+          value={pad(loadedToday)}
+          icon={<Clock size={18} />}
+          sub={
+            loadedToday > 0
+              ? `${loadedToday} vehicles loaded`
+              : "No loading today"
+          }
         />
         <Kpi
-          label="EXITED TODAY"
-          value={exitedToday}
+          label="EXIT GATE"
+          value={pad(exitedToday)}
           icon={<CheckCircle2 size={18} />}
           sub={
-            avgTurnaround !== null
-              ? `Avg cycle: ${hm(avgTurnaround)}`
-              : "No exits yet"
+            exitedToday > 0
+              ? `${exitedToday} vehicles exited`
+              : "No exits today"
           }
           subTone={exitedToday > 0 ? "green" : "slate"}
-        />
-        <Kpi
-          label="WAITING TO EXIT"
-          value={waitingExit}
-          icon={<Clock size={18} />}
-          sub={waitingExit > 0 ? "Ready for dispatch" : "None waiting"}
         />
       </div>
 

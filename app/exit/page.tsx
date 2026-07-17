@@ -178,307 +178,262 @@ export default function ExitPage() {
   }
 
   return (
-    <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_380px]">
-      {/* Left panel: scan panel & focus panel */}
-      <div className="flex flex-col gap-5">
-        {/* Scan / verification */}
-        <Panel className="p-6 text-center">
-          {scanning ? (
-            <div className="mb-4">
-              <div id="reader" className="mx-auto overflow-hidden rounded-xl border border-slate-200 bg-black w-[200px] h-[200px]"></div>
-              <button
-                onClick={stopScanner}
-                className="mt-3.5 rounded-lg bg-red-600 px-4 py-2 text-xs font-bold text-white hover:bg-red-700 cursor-pointer active:scale-95 transition-all"
-              >
-                Stop Camera
-              </button>
-            </div>
-          ) : (
-            <>
-              <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-xl border-2 border-dashed border-blue-300 text-blue-600 animate-pulse">
-                <QrIcon size={28} />
-              </div>
-              <p className="font-extrabold text-slate-800 text-[15px]">Scan Pass</p>
-              <p className="mb-4 mt-1 text-xs text-slate-400">
-                Scan Loading Pass QR with device camera
-              </p>
-              <button
-                onClick={startScanner}
-                className="mb-5 flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 py-3 text-[13px] font-extrabold text-white transition-colors hover:bg-blue-700 cursor-pointer active:scale-[0.99] transition-all shadow-sm"
-              >
-                <QrIcon size={14} /> Start Camera Scanner
-              </button>
-            </>
-          )}
-
-          <label className="mb-1.5 block text-left text-[11px] font-extrabold text-slate-500">
-            SCAN PASS / MANUAL ENTRY
-          </label>
-          <input
-            value={manualId}
-            onChange={(e) => setManualId(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && verifyManual()}
-            autoFocus
-            placeholder="ABC-1234"
-            className="mb-3 w-full rounded-lg border-2 border-blue-200 px-3.5 py-3 text-center text-[15px] font-extrabold uppercase outline-none focus:ring-[3px] focus:ring-blue-100"
-          />
-          <button
-            onClick={verifyManual}
-            className="mb-2.5 flex w-full items-center justify-center gap-2 rounded-lg bg-slate-800 py-3 text-[13px] font-extrabold text-white transition-colors hover:bg-slate-900 cursor-pointer active:scale-[0.99] transition-all"
-          >
-            <ArrowRight size={16} /> Verify Manual ID
-          </button>
-          <button
-            onClick={simulateScan}
-            className="flex w-full items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white py-3 text-[13px] font-bold text-slate-700 hover:bg-slate-50 transition-colors cursor-pointer active:scale-[0.99] transition-all"
-          >
-            <QrIcon size={14} className="text-blue-600" /> Simulate Scan QR
-          </button>
-        </Panel>
-
-        {/* Focus Panel */}
-        {!selected ? (
-          <Panel className="flex items-center justify-center p-16 text-center text-[13px] text-slate-400">
-            No vehicle selected. Queue is empty or scan a token to begin.
-          </Panel>
-        ) : (
-          <Panel className="border-l-4 border-l-emerald-600 p-8 animate-fadeIn">
-            <div className="mb-1.5 flex items-start justify-between">
-              <Pill tone="slate">READY FOR DISPATCH</Pill>
-              <div className="text-right">
-                <p className="flex items-center justify-end gap-1.5 font-extrabold text-emerald-600">
-                  <CheckCircle2 size={16} /> All Clear
-                </p>
-                <p className="mt-0.5 text-xs text-slate-400">
-                  In yard{" "}
-                  {durationBetween(selected.entryTime, new Date().toISOString())}
-                </p>
-              </div>
-            </div>
-            <div className="mb-1.5 mt-1 text-4xl font-extrabold">
-              {selected.vehicle}
-            </div>
-            <div className="mb-6 grid grid-cols-2 gap-4">
-              <DropdownMenu>
-                <DropdownMenuTrigger
-                  render={
-                    <button className="flex flex-col text-left rounded-lg bg-slate-50 p-3.5 transition-colors hover:bg-slate-100 dark:bg-slate-900 dark:hover:bg-slate-800 outline-none w-full border border-slate-200 dark:border-slate-800 cursor-pointer">
-                      <div className="flex items-center justify-between w-full text-[11px] font-bold text-slate-400">
-                        <span>SERIAL NO</span>
-                        <ChevronDown size={12} className="text-slate-400" />
-                      </div>
-                      <div className="mt-0.5 font-bold text-slate-800 dark:text-slate-100">
-                        L-{String(selected.loadingSerial ?? selected.serial).padStart(3, "0")}
-                      </div>
-                    </button>
-                  }
-                />
-                <DropdownMenuContent align="start" className="w-56 p-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg shadow-md max-h-60 overflow-y-auto">
-                  {queue.map((t) => (
-                    <DropdownMenuItem
-                      key={t.id}
-                      onClick={() => setExitSelected(t.id)}
-                      className={`flex flex-col items-start gap-0.5 px-3 py-2 text-xs rounded-md transition-colors cursor-pointer ${
-                        t.id === selected.id
-                          ? "bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-400 font-extrabold"
-                          : "text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800"
-                      }`}
-                    >
-                      <div className="flex items-center justify-between w-full">
-                        <span className="font-extrabold text-[13px]">{t.vehicle}</span>
-                        <span className="text-[10px] text-slate-400">L-{String(t.loadingSerial ?? t.serial).padStart(3, "0")}</span>
-                      </div>
-                      <span className="text-[10px] text-slate-400">BOE: {t.boe}</span>
-                    </DropdownMenuItem>
-                  ))}
-                </DropdownMenuContent>
-              </DropdownMenu>
-              <InfoBox k="INVOICE NO" v={selected.invoice || "N/A"} />
-            </div>
-
-            <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_260px]">
-              <div>
-                <p className="mb-4 text-[11px] font-extrabold tracking-[0.06em] text-slate-500">
-                  WORKFLOW VERIFICATION
-                </p>
-                <VerifStep
-                  t="1. Entry Recorded"
-                  d={`Gate A-1 @ ${fmtTime(selected.entryTime)}`}
-                />
-                <VerifStep
-                  t="2. Billing Completed"
-                  d={`Invoice #${selected.invoice ?? "—"}`}
-                />
-                <VerifStep
-                  t="3. Loading Completed"
-                  d={`${selected.bay} @ ${
-                    selected.loadingEnd ? fmtTime(selected.loadingEnd) : "—"
-                  }`}
-                />
-              </div>
-
-              <div className="rounded-xl bg-slate-50 p-5">
-                <p className="mb-3 flex items-center gap-1.5 text-[11px] font-extrabold text-red-600">
-                  <AlertTriangle size={14} /> EXCEPTION PROTOCOL
-                </p>
-                <label className="mb-0.5 block text-[13px] font-bold text-slate-700">
-                  Reason for Hold
-                </label>
-                <textarea
-                  value={holdReason}
-                  onChange={(e) => setHoldReason(e.target.value)}
-                  rows={3}
-                  placeholder="Specify vehicle hold reason..."
-                  className="mb-3 mt-1.5 w-full resize-y rounded-lg border border-slate-200 px-3 py-2.5 text-[13px] outline-none focus:ring-[3px] focus:ring-blue-100"
-                />
+    <div className="flex flex-col gap-5">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[380px_1fr]">
+        {/* Left panel: scan & Previews */}
+        <div className="flex flex-col gap-5">
+          {/* Scan / verification */}
+          <Panel className="p-6 text-center">
+            {scanning ? (
+              <div className="mb-4">
+                <div id="reader" className="mx-auto overflow-hidden rounded-xl border border-slate-200 bg-black w-[200px] h-[200px]"></div>
                 <button
-                  onClick={hold}
-                  disabled={busy}
-                  className="flex w-full items-center justify-center gap-2 rounded-lg bg-red-600 py-2.5 text-[13px] font-extrabold text-white transition-colors hover:bg-red-700 disabled:opacity-50 cursor-pointer active:scale-95 transition-all"
+                  onClick={stopScanner}
+                  className="mt-3.5 rounded-lg bg-red-600 px-4 py-2 text-xs font-bold text-white hover:bg-red-700 cursor-pointer active:scale-95 transition-all"
                 >
-                  <Ban size={14} /> Hold Vehicle
+                  Stop Camera
                 </button>
               </div>
-            </div>
+            ) : (
+              <>
+                <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-xl border-2 border-dashed border-blue-300 text-blue-600 animate-pulse">
+                  <QrIcon size={28} />
+                </div>
+                <p className="font-extrabold text-slate-800 text-[15px]">Scan Pass</p>
+                <p className="mb-4 mt-1 text-xs text-slate-400">
+                  Scan Loading Pass QR with device camera
+                </p>
+                <button
+                  onClick={startScanner}
+                  className="mb-5 flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 py-3 text-[13px] font-extrabold text-white transition-colors hover:bg-blue-700 cursor-pointer active:scale-[0.99] transition-all shadow-sm"
+                >
+                  <QrIcon size={14} /> Start Camera Scanner
+                </button>
+              </>
+            )}
 
+            <label className="mb-1.5 block text-left text-[11px] font-extrabold text-slate-500">
+              SCAN PASS / MANUAL ENTRY
+            </label>
+            <input
+              value={manualId}
+              onChange={(e) => setManualId(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && verifyManual()}
+              autoFocus
+              placeholder="ABC-1234"
+              className="mb-3 w-full rounded-lg border-2 border-blue-200 px-3.5 py-3 text-center text-[15px] font-extrabold uppercase outline-none focus:ring-[3px] focus:ring-blue-100"
+            />
             <button
-              onClick={permit}
-              disabled={busy}
-              className="mt-6 flex w-full items-center justify-center gap-2 rounded-lg bg-emerald-750 bg-emerald-600 py-4 text-[15px] font-extrabold text-white transition-all hover:bg-emerald-700 disabled:opacity-50 cursor-pointer active:scale-[0.99]"
+              onClick={verifyManual}
+              className="mb-2.5 flex w-full items-center justify-center gap-2 rounded-lg bg-slate-800 py-3 text-[13px] font-extrabold text-white transition-colors hover:bg-slate-900 cursor-pointer active:scale-[0.99] transition-all"
             >
-              <DoorOpen size={18} /> Permit Exit &amp; Open Gate
+              <ArrowRight size={16} /> Verify Manual ID
             </button>
           </Panel>
-        )}
-      </div>
 
-      {/* Right panel: Previews & Logs */}
-      <div className="flex flex-col gap-5">
-        {/* Live Gate Pass Preview */}
-        <Panel className="bg-slate-50 p-6">
-          <p className="mb-4 text-[11px] font-extrabold tracking-[0.08em] text-slate-500">
-            LIVE GATE PASS PREVIEW
-          </p>
-          <div className="rounded-xl border border-slate-200 bg-white p-6 text-center shadow-sm">
-            {selected && (
-              <div className="mb-3 font-black text-lg tracking-[0.05em] text-slate-800 uppercase">
-                TOKEN NO: E-{String(selected.loadingSerial ?? selected.serial).padStart(3, "0")}
-              </div>
-            )}
-            <p className="font-extrabold leading-tight text-slate-900">
-              YARDFLOW SYSTEMS
+          {/* Live Gate Pass Preview */}
+          <Panel className="bg-slate-50 p-6">
+            <p className="mb-4 text-[11px] font-extrabold tracking-[0.08em] text-slate-500">
+              LIVE GATE PASS PREVIEW
             </p>
-            {settings?.terminalName && (
-              <p className="mb-4 mt-0.5 text-[10px] text-slate-400">
-                {settings.terminalName}
-              </p>
-            )}
-            <div className="my-3 border-t border-dashed border-slate-200" />
-            <div className="mb-4 flex flex-col gap-1.5 text-left text-xs">
-              <div className="flex justify-between font-bold">
-                <span className="text-slate-400">VEHICLE:</span>
-                <span className="text-slate-800">{selected?.vehicle ?? "—"}</span>
-              </div>
-              <div className="flex justify-between font-bold">
-                <span className="text-slate-400">BOE NO:</span>
-                <span className="text-slate-800">{selected?.boe ?? "—"}</span>
-              </div>
-              <div className="flex justify-between font-bold">
-                <span className="text-slate-400">INVOICE:</span>
-                <span className="text-slate-800">{selected?.invoice ?? "—"}</span>
-              </div>
-              <div className="flex justify-between font-bold">
-                <span className="text-slate-400">EXIT:</span>
-                <span className="text-slate-800">{fmtTime(new Date())}</span>
-              </div>
-            </div>
-            <div className="mx-auto mt-4 flex h-20 w-20 items-center justify-center">
-              {selected ? (
-                <QrCode
-                  value={`YARDFLOW|EXIT|${selected.vehicle}|${selected.invoice ?? ""}`}
-                  size={80}
-                />
-              ) : (
-                <div className="flex h-20 w-20 items-center justify-center rounded-lg bg-slate-900 text-[10px] font-bold text-slate-500">
-                  QR
+            <div className="rounded-xl border border-slate-200 bg-white p-6 text-center shadow-sm">
+              {selected && (
+                <div className="mb-3 font-black text-lg tracking-[0.05em] text-slate-800 uppercase">
+                  TOKEN NO: E-{String(selected.loadingSerial ?? selected.serial).padStart(3, "0")}
                 </div>
               )}
-            </div>
-            <p className="mt-3 text-[10px] text-slate-400">
-              Thank you for your visit.
-            </p>
-          </div>
-        </Panel>
-
-        {/* Inbound queue logs */}
-        <Panel className="p-6">
-          <p className="mb-4 text-[11px] font-black tracking-[0.08em] text-slate-500 uppercase">
-            INBOUND QUEUE LOGS
-          </p>
-          {queue.length === 0 ? (
-            <p className="text-xs text-slate-400 py-4 text-center">No vehicles waiting for exit.</p>
-          ) : (
-            <div className="flex flex-col gap-3">
-              {queue.map((t) => (
-                <div
-                  key={t.id}
-                  onClick={() => setExitSelected(t.id)}
-                  className={`flex items-center justify-between rounded-lg border border-slate-100 px-4 py-3 bg-white shadow-sm cursor-pointer hover:border-blue-300 hover:bg-blue-50/10 active:scale-[0.99] transition-all ${
-                    t.id === selected?.id ? "border-blue-400 bg-blue-50/5" : ""
-                  }`}
-                >
-                  <div>
-                    <p className="text-sm font-extrabold text-slate-800">{t.vehicle}</p>
-                    <p className="mt-0.5 text-[11px] text-slate-400">BOE: {t.boe}</p>
-                  </div>
-                  <div className="text-right">
-                    <span className="text-sm font-extrabold text-slate-600 block">
-                      L-{String(t.loadingSerial ?? t.serial).padStart(3, "0")}
-                    </span>
-                    <span className={`inline-flex items-center rounded px-1.5 py-0.5 text-[9px] font-bold mt-1 ${
-                      t.status === "held" ? "bg-red-50 text-red-700" : "bg-emerald-50 text-emerald-700"
-                    }`}>
-                      {t.status === "held" ? "HOLD" : "READY"}
-                    </span>
-                  </div>
+              <p className="font-extrabold leading-tight text-slate-900">
+                YARDFLOW SYSTEMS
+              </p>
+              {settings?.terminalName && (
+                <p className="mb-4 mt-0.5 text-[10px] text-slate-400">
+                  {settings.terminalName}
+                </p>
+              )}
+              <div className="my-3 border-t border-dashed border-slate-200" />
+              <div className="mb-4 flex flex-col gap-1.5 text-left text-xs">
+                <div className="flex justify-between font-bold">
+                  <span className="text-slate-400">VEHICLE:</span>
+                  <span className="text-slate-800">{selected?.vehicle ?? "—"}</span>
                 </div>
-              ))}
-            </div>
-          )}
-        </Panel>
-
-        {/* Today's Exited */}
-        <Panel className="p-6">
-          <p className="mb-4 text-[11px] font-black tracking-[0.08em] text-slate-500 uppercase">
-            TODAY&apos;S EXITED
-          </p>
-          {recentExits.length === 0 ? (
-            <p className="text-xs text-slate-400 py-4 text-center">No exits recorded today yet.</p>
-          ) : (
-            <div className="flex flex-col gap-3">
-              {recentExits.map((t) => (
-                <div
-                  key={t.id}
-                  className="flex items-center justify-between rounded-lg border border-slate-100 px-4 py-3 bg-white shadow-sm"
-                >
-                  <div>
-                    <p className="text-sm font-bold text-slate-800">{t.vehicle}</p>
-                    <p className="text-[10px] text-slate-400 mt-0.5">Exit: {t.exitTime ? fmtTime(t.exitTime) : ""}</p>
-                  </div>
-                  <div className="text-right">
-                    <span className="text-xs font-bold text-slate-500 block">
-                      L-{String(t.loadingSerial ?? t.serial).padStart(3, "0")}
-                    </span>
-                    <span className="inline-flex items-center rounded bg-blue-50 px-1.5 py-0.5 text-[9px] font-bold text-blue-700 mt-0.5">
-                      EXITED
-                    </span>
-                  </div>
+                <div className="flex justify-between font-bold">
+                  <span className="text-slate-400">BOE NO:</span>
+                  <span className="text-slate-800">{selected?.boe ?? "—"}</span>
                 </div>
-              ))}
+                <div className="flex justify-between font-bold">
+                  <span className="text-slate-400">INVOICE:</span>
+                  <span className="text-slate-800">{selected?.invoice ?? "—"}</span>
+                </div>
+                <div className="flex justify-between font-bold">
+                  <span className="text-slate-400">EXIT:</span>
+                  <span className="text-slate-800">{fmtTime(new Date())}</span>
+                </div>
+              </div>
+              <div className="mx-auto mt-4 flex h-20 w-20 items-center justify-center">
+                {selected ? (
+                  <QrCode
+                    value={`YARDFLOW|EXIT|${selected.vehicle}|${selected.invoice ?? ""}`}
+                    size={80}
+                  />
+                ) : (
+                  <div className="flex h-20 w-20 items-center justify-center rounded-lg bg-slate-900 text-[10px] font-bold text-slate-500">
+                    QR
+                  </div>
+                )}
+              </div>
+              <p className="mt-3 text-[10px] text-slate-400">
+                Thank you for your visit.
+              </p>
             </div>
+          </Panel>
+        </div>
+
+        {/* Right panel: focus panel */}
+        <div className="flex flex-col gap-5">
+          {/* Focus Panel */}
+          {selected && (
+            <Panel className="border-l-4 border-l-emerald-600 p-8 animate-fadeIn">
+              <div className="mb-1.5 flex items-start justify-between">
+                <Pill tone="slate">READY FOR DISPATCH</Pill>
+                <div className="text-right">
+                  <p className="flex items-center justify-end gap-1.5 font-extrabold text-emerald-600">
+                    <CheckCircle2 size={16} /> All Clear
+                  </p>
+                  <p className="mt-0.5 text-xs text-slate-400">
+                    In yard{" "}
+                    {durationBetween(selected.entryTime, new Date().toISOString())}
+                  </p>
+                </div>
+              </div>
+              <div className="mb-1.5 mt-1 text-4xl font-extrabold">
+                {selected.vehicle}
+              </div>
+              <div className="mb-6 grid grid-cols-2 gap-4">
+                <DropdownMenu>
+                  <DropdownMenuTrigger
+                    render={
+                      <button className="flex flex-col text-left rounded-lg bg-slate-50 p-3.5 transition-colors hover:bg-slate-100 dark:bg-slate-900 dark:hover:bg-slate-800 outline-none w-full border border-slate-200 dark:border-slate-800 cursor-pointer">
+                        <div className="flex items-center justify-between w-full text-[11px] font-bold text-slate-400">
+                          <span>SERIAL NO</span>
+                          <ChevronDown size={12} className="text-slate-400" />
+                        </div>
+                        <div className="mt-0.5 font-bold text-slate-800 dark:text-slate-100">
+                          L-{String(selected.loadingSerial ?? selected.serial).padStart(3, "0")}
+                        </div>
+                      </button>
+                    }
+                  />
+                  <DropdownMenuContent align="start" className="w-56 p-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg shadow-md max-h-60 overflow-y-auto">
+                    {queue.map((t) => (
+                      <DropdownMenuItem
+                        key={t.id}
+                        onClick={() => setExitSelected(t.id)}
+                        className={`flex flex-col items-start gap-0.5 px-3 py-2 text-xs rounded-md transition-colors cursor-pointer ${
+                          t.id === selected.id
+                            ? "bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-400 font-extrabold"
+                            : "text-slate-700 dark:text-slate-350 hover:bg-slate-50 dark:hover:bg-slate-800"
+                        }`}
+                      >
+                        <div className="flex items-center justify-between w-full">
+                          <span className="font-extrabold text-[13px]">{t.vehicle}</span>
+                          <span className="text-[10px] text-slate-400">L-{String(t.loadingSerial ?? t.serial).padStart(3, "0")}</span>
+                        </div>
+                        <span className="text-[10px] text-slate-400">BOE: {t.boe}</span>
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+                <InfoBox k="INVOICE NO" v={selected.invoice || "N/A"} />
+              </div>
+
+              <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_260px]">
+                <div>
+                  <p className="mb-4 text-[11px] font-extrabold tracking-[0.06em] text-slate-500">
+                    WORKFLOW VERIFICATION
+                  </p>
+                  <VerifStep
+                    t="1. Entry Recorded"
+                    d={`Gate A-1 @ ${fmtTime(selected.entryTime)}`}
+                  />
+                  <VerifStep
+                    t="2. Billing Completed"
+                    d={`Invoice #${selected.invoice ?? "—"}`}
+                  />
+                  <VerifStep
+                    t="3. Loading Completed"
+                    d={`${selected.bay} @ ${
+                      selected.loadingEnd ? fmtTime(selected.loadingEnd) : "—"
+                    }`}
+                  />
+                </div>
+
+                <div className="rounded-xl bg-slate-50 p-5">
+                  <p className="mb-3 flex items-center gap-1.5 text-[11px] font-extrabold text-red-600">
+                    <AlertTriangle size={14} /> EXCEPTION PROTOCOL
+                  </p>
+                  <label className="mb-0.5 block text-[13px] font-bold text-slate-700">
+                    Reason for Hold
+                  </label>
+                  <textarea
+                    value={holdReason}
+                    onChange={(e) => setHoldReason(e.target.value)}
+                    rows={3}
+                    placeholder="Specify vehicle hold reason..."
+                    className="mb-3 mt-1.5 w-full resize-y rounded-lg border border-slate-200 px-3 py-2.5 text-[13px] outline-none focus:ring-[3px] focus:ring-blue-100"
+                  />
+                  <button
+                    onClick={hold}
+                    disabled={busy}
+                    className="flex w-full items-center justify-center gap-2 rounded-lg bg-red-600 py-2.5 text-[13px] font-extrabold text-white transition-colors hover:bg-red-700 disabled:opacity-50 cursor-pointer active:scale-95 transition-all"
+                  >
+                    <Ban size={14} /> Hold Vehicle
+                  </button>
+                </div>
+              </div>
+
+              <button
+                onClick={permit}
+                disabled={busy}
+                className="mt-6 flex w-full items-center justify-center gap-2 rounded-lg bg-emerald-750 bg-emerald-600 py-4 text-[15px] font-extrabold text-white transition-all hover:bg-emerald-700 disabled:opacity-50 cursor-pointer active:scale-[0.99]"
+              >
+                <DoorOpen size={18} /> Permit Exit &amp; Open Gate
+              </button>
+            </Panel>
           )}
-        </Panel>
+        </div>
       </div>
+
+      {/* Today's Exited - Full Landscape Row */}
+      <Panel className="p-6">
+        <p className="mb-4 text-[11px] font-black tracking-[0.08em] text-slate-500 uppercase">
+          TODAY&apos;S EXITED
+        </p>
+        {recentExits.length === 0 ? (
+          <p className="text-xs text-slate-400 py-4 text-center">No exits recorded today yet.</p>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
+            {recentExits.map((t) => (
+              <div
+                key={t.id}
+                className="flex items-center justify-between rounded-lg border border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900/50 px-4 py-3 shadow-sm hover:border-slate-350 transition-colors"
+              >
+                <div>
+                  <p className="text-sm font-bold text-slate-800 dark:text-slate-100">{t.vehicle}</p>
+                  <p className="text-[10px] text-slate-400 mt-0.5">Exit: {t.exitTime ? fmtTime(t.exitTime) : ""}</p>
+                </div>
+                <div className="text-right">
+                  <span className="text-xs font-bold text-slate-500 block">
+                    L-{String(t.loadingSerial ?? t.serial).padStart(3, "0")}
+                  </span>
+                  <span className="inline-flex items-center rounded bg-blue-50 px-1.5 py-0.5 text-[9px] font-bold text-blue-700 mt-0.5">
+                    EXITED
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </Panel>
     </div>
   );
 }

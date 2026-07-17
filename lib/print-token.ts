@@ -4,7 +4,7 @@ import { fmtDate, fmtTime } from "./format";
 import { useStore } from "./store";
 
 /**
- * Prints a single gate-entry token slip optimized for 58mm thermal printers.
+ * Prints a single gate-entry token slip optimized for 80mm (3-inch) thermal receipt printers.
  */
 export async function printToken(ticket: Ticket): Promise<void> {
   const entry = new Date(ticket.entryTime);
@@ -30,11 +30,11 @@ export async function printToken(ticket: Ticket): Promise<void> {
     font-size: 13px;
     line-height: 1.35;
   }
-  @page { size: 80mm 120mm; margin: 0mm; }
+  @page { size: 80mm auto; margin: 0mm; }
   .ticket {
     width: 72mm;
     margin: 0 auto;
-    padding: 12px 8px;
+    padding: 12px 8px 36px;
     border: none;
     page-break-inside: avoid;
     break-inside: avoid;
@@ -56,8 +56,22 @@ export async function printToken(ticket: Ticket): Promise<void> {
   .terminal-lbl {
     font-size: 9px;
     font-weight: 700;
-    color: #444;
+    color: #000;
     text-transform: uppercase;
+    margin-top: 2px;
+  }
+  .address-lbl {
+    font-size: 9px;
+    color: #000;
+    margin-top: 2px;
+    max-width: 68mm;
+    word-wrap: break-word;
+    white-space: pre-line;
+  }
+  .gst-lbl {
+    font-size: 9px;
+    font-weight: 700;
+    color: #000;
     margin-top: 2px;
   }
   .token-badge {
@@ -72,7 +86,7 @@ export async function printToken(ticket: Ticket): Promise<void> {
     font-size: 8px;
     font-weight: 700;
     letter-spacing: 0.08em;
-    color: #555;
+    color: #000;
     text-transform: uppercase;
     margin-bottom: 1px;
   }
@@ -84,19 +98,20 @@ export async function printToken(ticket: Ticket): Promise<void> {
   .eyebrow {
     text-align: center;
     font-size: 10px;
-    font-weight: 800;
+    font-weight: 850;
     letter-spacing: 0.08em;
     text-transform: uppercase;
-    background: #e8e8e8;
-    padding: 3.5px;
+    background: #000;
+    color: #fff;
+    padding: 4.5px;
     border-radius: 4px;
     margin-bottom: 8px;
   }
   .divider { border-top: 1.5px dashed #000; margin: 8px 0; }
   .rows { display: flex; flex-direction: column; gap: 5px; }
   .row { display: flex; justify-content: space-between; padding: 2px 0; }
-  .row .k { color: #555; font-weight: 600; font-size: 11px; text-transform: uppercase; }
-  .row .v { font-weight: 700; text-align: right; word-break: break-all; color: #000; font-size: 12px; }
+  .row .k { color: #000; font-weight: 600; font-size: 11px; text-transform: uppercase; }
+  .row .v { font-weight: 800; text-align: right; word-break: break-all; color: #000; font-size: 12px; }
   .valid {
     text-align: center;
     font-size: 10px;
@@ -108,13 +123,13 @@ export async function printToken(ticket: Ticket): Promise<void> {
     margin: 8px 0 4px;
     text-transform: uppercase;
   }
-  .note { text-align: center; font-size: 10px; color: #444; margin: 4px 0 0; line-height: 1.25; }
+  .note { text-align: center; font-size: 10px; color: #000; margin: 4px 0 0; line-height: 1.25; }
   .foot {
     text-align: center;
-    font-size: 8px;
-    color: #666;
-    margin-top: 10px;
-    border-top: 1px solid #e5e5e5;
+    font-size: 8.5px;
+    color: #000;
+    margin-top: 12px;
+    border-top: 1px dashed #000;
     padding-top: 6px;
     text-transform: uppercase;
     letter-spacing: 0.04em;
@@ -124,8 +139,10 @@ export async function printToken(ticket: Ticket): Promise<void> {
 <body>
   <div class="ticket">
     <div class="brand">
-      <p class="name">YARDFLOW MANAGER</p>
+      <p class="name">${settings?.companyName ? escapeHtml(settings.companyName) : "YARDFLOW MANAGER"}</p>
       ${settings?.terminalName ? `<div class="terminal-lbl">${escapeHtml(settings.terminalName)}</div>` : ""}
+      ${settings?.companyAddress ? `<div class="address-lbl">${escapeHtml(settings.companyAddress)}</div>` : ""}
+      ${settings?.companyGst ? `<div class="gst-lbl">GST: ${escapeHtml(settings.companyGst)}</div>` : ""}
     </div>
     <div class="token-badge">
       <div class="lbl">GATE ENTRY TOKEN</div>
@@ -184,7 +201,7 @@ export async function printToken(ticket: Ticket): Promise<void> {
 }
 
 /**
- * Prints a billing approval slip optimized for 58mm thermal printers.
+ * Prints a billing approval slip optimized for 80mm (3-inch) thermal receipt printers.
  */
 export async function printBillingToken(ticket: Ticket): Promise<void> {
   const entry = new Date(ticket.entryTime);
@@ -211,11 +228,11 @@ export async function printBillingToken(ticket: Ticket): Promise<void> {
     font-size: 13px;
     line-height: 1.35;
   }
-  @page { size: 80mm 130mm; margin: 0mm; }
+  @page { size: 80mm auto; margin: 0mm; }
   .ticket {
     width: 72mm;
     margin: 0 auto;
-    padding: 12px 8px;
+    padding: 12px 8px 36px;
     border: none;
     page-break-inside: avoid;
     break-inside: avoid;
@@ -237,8 +254,22 @@ export async function printBillingToken(ticket: Ticket): Promise<void> {
   .terminal-lbl {
     font-size: 9px;
     font-weight: 700;
-    color: #444;
+    color: #000;
     text-transform: uppercase;
+    margin-top: 2px;
+  }
+  .address-lbl {
+    font-size: 9px;
+    color: #000;
+    margin-top: 2px;
+    max-width: 68mm;
+    word-wrap: break-word;
+    white-space: pre-line;
+  }
+  .gst-lbl {
+    font-size: 9px;
+    font-weight: 700;
+    color: #000;
     margin-top: 2px;
   }
   .token-badge {
@@ -253,7 +284,7 @@ export async function printBillingToken(ticket: Ticket): Promise<void> {
     font-size: 8px;
     font-weight: 700;
     letter-spacing: 0.08em;
-    color: #555;
+    color: #000;
     text-transform: uppercase;
     margin-bottom: 1px;
   }
@@ -265,19 +296,20 @@ export async function printBillingToken(ticket: Ticket): Promise<void> {
   .eyebrow {
     text-align: center;
     font-size: 10px;
-    font-weight: 800;
+    font-weight: 850;
     letter-spacing: 0.08em;
     text-transform: uppercase;
-    background: #e8e8e8;
-    padding: 3.5px;
+    background: #000;
+    color: #fff;
+    padding: 4.5px;
     border-radius: 4px;
     margin-bottom: 8px;
   }
   .divider { border-top: 1.5px dashed #000; margin: 8px 0; }
   .rows { display: flex; flex-direction: column; gap: 5px; }
   .row { display: flex; justify-content: space-between; padding: 2px 0; }
-  .row .k { color: #555; font-weight: 600; font-size: 11px; text-transform: uppercase; }
-  .row .v { font-weight: 700; text-align: right; word-break: break-all; color: #000; font-size: 12px; }
+  .row .k { color: #000; font-weight: 600; font-size: 11px; text-transform: uppercase; }
+  .row .v { font-weight: 800; text-align: right; word-break: break-all; color: #000; font-size: 12px; }
   .payment-status-badge {
     text-align: center;
     margin: 10px 0 6px;
@@ -304,13 +336,13 @@ export async function printBillingToken(ticket: Ticket): Promise<void> {
     margin: 8px 0 4px;
     text-transform: uppercase;
   }
-  .note { text-align: center; font-size: 10px; color: #444; margin: 4px 0 0; line-height: 1.25; }
+  .note { text-align: center; font-size: 10px; color: #000; margin: 4px 0 0; line-height: 1.25; }
   .foot {
     text-align: center;
-    font-size: 8px;
-    color: #666;
-    margin-top: 10px;
-    border-top: 1px solid #e5e5e5;
+    font-size: 8.5px;
+    color: #000;
+    margin-top: 12px;
+    border-top: 1px dashed #000;
     padding-top: 6px;
     text-transform: uppercase;
     letter-spacing: 0.04em;
@@ -320,8 +352,10 @@ export async function printBillingToken(ticket: Ticket): Promise<void> {
 <body>
   <div class="ticket">
     <div class="brand">
-      <p class="name">YARDFLOW MANAGER</p>
+      <p class="name">${settings?.companyName ? escapeHtml(settings.companyName) : "YARDFLOW MANAGER"}</p>
       ${settings?.terminalName ? `<div class="terminal-lbl">${escapeHtml(settings.terminalName)}</div>` : ""}
+      ${settings?.companyAddress ? `<div class="address-lbl">${escapeHtml(settings.companyAddress)}</div>` : ""}
+      ${settings?.companyGst ? `<div class="gst-lbl">GST: ${escapeHtml(settings.companyGst)}</div>` : ""}
     </div>
     <div class="token-badge">
       <div class="lbl">BILLING PASS</div>
@@ -385,7 +419,7 @@ export async function printBillingToken(ticket: Ticket): Promise<void> {
 }
 
 /**
- * Prints a loading dispatch pass/bill optimized for 80mm thermal printers.
+ * Prints a loading dispatch pass/bill optimized for 80mm (3-inch) thermal receipt printers.
  */
 export async function printLoadingToken(ticket: Ticket): Promise<void> {
   const loadingTime = ticket.loadingEnd ? new Date(ticket.loadingEnd) : new Date();
@@ -418,11 +452,11 @@ export async function printLoadingToken(ticket: Ticket): Promise<void> {
     font-size: 13px;
     line-height: 1.35;
   }
-  @page { size: 80mm 160mm; margin: 0mm; }
+  @page { size: 80mm auto; margin: 0mm; }
   .ticket {
     width: 72mm;
     margin: 0 auto;
-    padding: 12px 8px;
+    padding: 12px 8px 36px;
     border: none;
     page-break-inside: avoid;
     break-inside: avoid;
@@ -444,8 +478,22 @@ export async function printLoadingToken(ticket: Ticket): Promise<void> {
   .terminal-lbl {
     font-size: 9px;
     font-weight: 700;
-    color: #444;
+    color: #000;
     text-transform: uppercase;
+    margin-top: 2px;
+  }
+  .address-lbl {
+    font-size: 9px;
+    color: #000;
+    margin-top: 2px;
+    max-width: 68mm;
+    word-wrap: break-word;
+    white-space: pre-line;
+  }
+  .gst-lbl {
+    font-size: 9px;
+    font-weight: 700;
+    color: #000;
     margin-top: 2px;
   }
   .token-badge {
@@ -460,7 +508,7 @@ export async function printLoadingToken(ticket: Ticket): Promise<void> {
     font-size: 8px;
     font-weight: 700;
     letter-spacing: 0.08em;
-    color: #555;
+    color: #000;
     text-transform: uppercase;
     margin-bottom: 1px;
   }
@@ -472,19 +520,20 @@ export async function printLoadingToken(ticket: Ticket): Promise<void> {
   .eyebrow {
     text-align: center;
     font-size: 10px;
-    font-weight: 800;
+    font-weight: 850;
     letter-spacing: 0.08em;
     text-transform: uppercase;
-    background: #e8e8e8;
-    padding: 3.5px;
+    background: #000;
+    color: #fff;
+    padding: 4.5px;
     border-radius: 4px;
     margin-bottom: 8px;
   }
   .divider { border-top: 1.5px dashed #000; margin: 8px 0; }
   .rows { display: flex; flex-direction: column; gap: 5px; }
   .row { display: flex; justify-content: space-between; padding: 2px 0; }
-  .row .k { color: #555; font-weight: 600; font-size: 11px; text-transform: uppercase; }
-  .row .v { font-weight: 700; text-align: right; word-break: break-all; color: #000; font-size: 12px; }
+  .row .k { color: #000; font-weight: 600; font-size: 11px; text-transform: uppercase; }
+  .row .v { font-weight: 800; text-align: right; word-break: break-all; color: #000; font-size: 12px; }
   .qr-code-section {
     display: flex;
     justify-content: center;
@@ -507,13 +556,13 @@ export async function printLoadingToken(ticket: Ticket): Promise<void> {
     margin: 8px 0 4px;
     text-transform: uppercase;
   }
-  .note { text-align: center; font-size: 10px; color: #444; margin: 4px 0 0; line-height: 1.25; }
+  .note { text-align: center; font-size: 10px; color: #000; margin: 4px 0 0; line-height: 1.25; }
   .foot {
     text-align: center;
-    font-size: 8px;
-    color: #666;
-    margin-top: 10px;
-    border-top: 1px solid #e5e5e5;
+    font-size: 8.5px;
+    color: #000;
+    margin-top: 12px;
+    border-top: 1px dashed #000;
     padding-top: 6px;
     text-transform: uppercase;
     letter-spacing: 0.04em;
@@ -523,8 +572,10 @@ export async function printLoadingToken(ticket: Ticket): Promise<void> {
 <body>
   <div class="ticket">
     <div class="brand">
-      <p class="name">YARDFLOW MANAGER</p>
+      <p class="name">${settings?.companyName ? escapeHtml(settings.companyName) : "YARDFLOW MANAGER"}</p>
       ${settings?.terminalName ? `<div class="terminal-lbl">${escapeHtml(settings.terminalName)}</div>` : ""}
+      ${settings?.companyAddress ? `<div class="address-lbl">${escapeHtml(settings.companyAddress)}</div>` : ""}
+      ${settings?.companyGst ? `<div class="gst-lbl">GST: ${escapeHtml(settings.companyGst)}</div>` : ""}
     </div>
     <div class="token-badge">
       <div class="lbl">LOADING TOKEN</div>
@@ -533,7 +584,6 @@ export async function printLoadingToken(ticket: Ticket): Promise<void> {
     <div class="eyebrow">Loading Dispatch Pass</div>
     <div class="divider"></div>
     <div class="rows">
-      ${row("VEHICLE", ticket.vehicle)}
       ${row("WORK ORDER NO", ticket.boe)}
       ${row("CHA / AGENT", ticket.agent)}
       ${row("GATE TOKEN NO", ticket.manualGateToken || `G-${String(ticket.serial).padStart(3, "0")}`)}
