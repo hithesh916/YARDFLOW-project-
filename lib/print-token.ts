@@ -27,7 +27,7 @@ export async function printToken(ticket: Ticket): Promise<void> {
     print-color-adjust: exact;
     font-size: 14px;
   }
-  @page { size: 80mm auto; margin: 0mm; }
+  @page { size: 80mm 125mm; margin: 0mm; }
   .ticket {
     width: 72mm;
     margin: 0 auto;
@@ -160,7 +160,7 @@ export async function printBillingToken(ticket: Ticket): Promise<void> {
     print-color-adjust: exact;
     font-size: 14px;
   }
-  @page { size: 80mm auto; margin: 0mm; }
+  @page { size: 80mm 125mm; margin: 0mm; }
   .ticket {
     width: 72mm;
     margin: 0 auto;
@@ -328,7 +328,7 @@ export async function printLoadingToken(ticket: Ticket): Promise<void> {
     print-color-adjust: exact;
     font-size: 14px;
   }
-  @page { size: 80mm auto; margin: 0mm; }
+  @page { size: 80mm 165mm; margin: 0mm; }
   .ticket {
     width: 72mm;
     margin: 0 auto;
