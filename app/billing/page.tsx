@@ -35,22 +35,61 @@ export default function BillingPage() {
   const [busy, setBusy] = useState(false);
   const [lastBilled, setLastBilled] = useState<Ticket | null>(null);
   const [billedExpanded, setBilledExpanded] = useState(false);
+  const [showAgentOptions, setShowAgentOptions] = useState(false);
+  const [agentOptions, setAgentOptions] = useState<string[]>([]);
   // Track the matched ticket from the queue (for linking to existing entries)
   const [matchedTicket, setMatchedTicket] = useState<Ticket | null>(null);
+  // Cross-gate: vehicle pre-filled from entry gate record
+  const [prefillVehicle, setPrefillVehicle] = useState<string | null>(null);
 
-  // Auto-populate form fields if typed BOE matches an active ticket awaiting billing
+  // Auto-populate form fields when typed BOE matches a ticket in queue or entry gate record
   useEffect(() => {
     const b = boe.trim().toUpperCase();
-    if (!b) { setMatchedTicket(null); return; }
-    const matched = tickets.find(
-      (t) => t.boe.toUpperCase() === b && t.status === "awaiting_billing"
-    );
-    if (matched) {
-      setAgent(matched.agent);
-      setRemarks(matched.remarks ?? "");
-      setMatchedTicket(matched);
-    } else {
+    if (!b) {
       setMatchedTicket(null);
+      setPrefillVehicle(null);
+      setAgentOptions([]);
+      setShowAgentOptions(false);
+      return;
+    }
+
+    // Search ALL active tickets matching the typed BOE (regardless of status)
+    const allMatches = tickets.filter(
+      (t) =>
+        t.boe.toUpperCase() === b &&
+        t.status !== "exited" &&
+        t.status !== "held"
+    );
+
+    if (allMatches.length === 0) {
+      setMatchedTicket(null);
+      setPrefillVehicle(null);
+      setAgentOptions([]);
+      return;
+    }
+
+    // Prefer tickets awaiting_billing (directly actionable)
+    const billingMatches = allMatches.filter((t) => t.status === "awaiting_billing");
+    const matched = billingMatches[0] ?? allMatches[0];
+
+    // Set agent options for multi-match dropdown
+    const uniqueAgents = Array.from(
+      new Set(billingMatches.map((t) => (t.billingAgent || t.agent || "Unassigned").trim()).filter(Boolean)),
+    );
+    setAgentOptions(uniqueAgents);
+    if (uniqueAgents.length <= 1) setShowAgentOptions(false);
+
+    // Always fill agent and remarks from matched ticket
+    setAgent(matched.billingAgent || matched.agent || "");
+    setRemarks(matched.remarks ?? "");
+    setMatchedTicket(matched);
+
+    // Show vehicle number ONLY when ticket was created at entry gate
+    // (billing-first tickets have vehicle === boe which is not meaningful to show)
+    if (matched.createdSource === "entry") {
+      setPrefillVehicle(matched.vehicle);
+    } else {
+      setPrefillVehicle(null);
     }
   }, [boe, tickets]);
 
@@ -71,6 +110,7 @@ export default function BillingPage() {
     setAgent(t.agent);
     setRemarks(t.remarks ?? "");
     setMatchedTicket(t);
+    setPrefillVehicle(t.vehicle || null);
     toast.success(`Loaded details for ${t.vehicle} (${t.boe})`);
   }
 
@@ -136,6 +176,7 @@ export default function BillingPage() {
       setInvoice("");
       setPaymentStatus("Paid");
       setMatchedTicket(null);
+      setPrefillVehicle(null);
       toast.success(`Billing approved (${paymentStatus}) — printing token`);
     }
   }
@@ -152,28 +193,87 @@ export default function BillingPage() {
           {/* BOE Number (Primary) */}
           <div>
             <label className="mb-2 block text-[13px] font-bold text-slate-700">
-              Work Order No *
+              BOE *
             </label>
             <input
               value={boe}
-              onChange={(e) => setBoe(e.target.value)}
+              onChange={(e) => setBoe(e.target.value.toUpperCase())}
               onKeyDown={(e) => e.key === "Enter" && confirm()}
-              placeholder="e.g. WO-10024"
-              className="w-full rounded-lg border border-input bg-slate-50 dark:bg-black px-3.5 py-3 text-xl font-bold uppercase outline-none focus:ring-2 focus:ring-ring"
+              placeholder="MAA1234567890"
+              className="w-full rounded-lg border border-input bg-slate-50 dark:bg-black px-3.5 py-3 text-xl font-bold uppercase placeholder:text-slate-400 placeholder:font-normal placeholder:normal-case outline-none focus:ring-2 focus:ring-ring"
+            />
+          </div>
+
+          {/* Vehicle No — auto-filled from Entry Gate when BOE matches an entry-gate ticket */}
+          <div>
+            <label className="mb-2 flex items-center gap-2 text-[13px] font-bold text-slate-700">
+              Vehicle No
+              {prefillVehicle && (
+                <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 dark:bg-emerald-900/30 px-2 py-0.5 text-[10px] font-extrabold text-emerald-700 dark:text-emerald-400 uppercase tracking-wide">
+                  <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                  Linked from Entry Gate
+                </span>
+              )}
+            </label>
+            <input
+              value={prefillVehicle ?? ""}
+              readOnly
+              placeholder={prefillVehicle ? "" : "Auto-filled when BOE matches entry gate record"}
+              className={`w-full rounded-lg border px-3.5 py-3 text-sm font-bold outline-none cursor-not-allowed ${
+                prefillVehicle
+                  ? "border-emerald-300 bg-emerald-50 dark:border-emerald-700 dark:bg-emerald-950/20 text-emerald-800 dark:text-emerald-300"
+                  : "border-input bg-transparent text-slate-400 dark:text-slate-500"
+              }`}
             />
           </div>
 
           {/* Form details */}
-          <div>
-            <label className="mb-2 block text-[13px] font-bold text-slate-700">
-              CHA / Agent Name
+          <div className="relative">
+            <label className="mb-2 flex items-center justify-between text-[13px] font-bold text-slate-700">
+              <span>CHA / Agent Name</span>
+              {agentOptions.length > 1 && (
+                <button
+                  type="button"
+                  onClick={() => setShowAgentOptions((prev) => !prev)}
+                  className="text-xs font-bold text-blue-600 hover:text-blue-700"
+                >
+                  {showAgentOptions ? "Hide names" : `Show ${agentOptions.length} names`}
+                </button>
+              )}
             </label>
-            <input
-              value={agent}
-              onChange={(e) => setAgent(e.target.value)}
-              placeholder="Global Logistics"
-              className="w-full rounded-lg border border-input bg-slate-50 dark:bg-black px-3.5 py-3 text-sm outline-none focus:ring-2 focus:ring-ring"
-            />
+            <div className="relative">
+              <input
+                value={agent}
+                onChange={(e) => setAgent(e.target.value)}
+                placeholder="Global Logistics"
+                className="w-full rounded-lg border border-input bg-slate-50 dark:bg-black px-3.5 py-3 pr-10 text-sm outline-none focus:ring-2 focus:ring-ring"
+              />
+              <button
+                type="button"
+                onClick={() => setShowAgentOptions((prev) => !prev)}
+                className="absolute inset-y-0 right-0 flex items-center pr-3 text-slate-400 hover:text-slate-600"
+                aria-label="Toggle agent options"
+              >
+                <ChevronDown size={16} />
+              </button>
+            </div>
+            {showAgentOptions && agentOptions.length > 0 && (
+              <div className="mt-2 rounded-lg border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-950">
+                {agentOptions.map((option) => (
+                  <button
+                    key={option}
+                    type="button"
+                    onClick={() => {
+                      setAgent(option);
+                      setShowAgentOptions(false);
+                    }}
+                    className="w-full text-left px-3 py-2 text-sm text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800"
+                  >
+                    {option}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Payment Status & Invoice */}
@@ -254,7 +354,7 @@ export default function BillingPage() {
             )}
             <div className="my-3 border-t border-dashed border-slate-200" />
             <div className="mb-4 flex flex-col gap-1.5 text-left text-xs">
-              <TokenRow k="WORK ORDER NO:" v={boe || lastBilled?.boe || "—"} />
+              <TokenRow k="BOE:" v={boe || lastBilled?.boe || "—"} />
               <TokenRow k="AGENT / CHA:" v={agent || lastBilled?.billingAgent || lastBilled?.agent || "—"} />
               <TokenRow 
                 k="INVOICE NO:" 

@@ -34,6 +34,7 @@ export interface Ticket {
   loadingRemarks?: string | null;
   manualGateToken?: string | null;
   manualBillingToken?: string | null;
+  workOrder?: string | null;
 }
 
 export interface Alert {

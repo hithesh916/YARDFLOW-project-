@@ -349,7 +349,7 @@ export async function createTicket(input: {
 
 export function completeLoading(
   id: string,
-  extra?: { boe?: string; agent?: string; remarks?: string; gateToken?: string; billingToken?: string }
+  extra?: { boe?: string; workOrder?: string; agent?: string; remarks?: string; gateToken?: string; billingToken?: string }
 ): Promise<YardState> {
   return mutate((l, log) => {
     const t = find(l, id);
@@ -359,7 +359,7 @@ export function completeLoading(
       t.loadingSerial = l.counters.loadingSerial;
       t.status = "awaiting_exit";
       t.loadingEnd = new Date().toISOString();
-      if (extra?.boe) t.boe = extra.boe;
+      if (extra?.workOrder) t.workOrder = extra.workOrder;
       t.loadingAgent = extra?.agent ? extra.agent.trim() : t.billingAgent || t.agent;
       t.loadingRemarks = extra?.remarks ? extra.remarks.trim() : "";
       if (extra?.gateToken) t.manualGateToken = extra.gateToken.trim();

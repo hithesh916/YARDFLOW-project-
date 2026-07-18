@@ -1,13 +1,13 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { CheckCircle2, ClipboardCheck, Printer, Ban, ChevronDown, ChevronUp, ReceiptText, Truck } from "lucide-react";
 import { toast } from "sonner";
 import { Panel } from "@/components/panel";
 import { Pill } from "@/components/pill";
 import { filterBySearch, useStore } from "@/lib/store";
 import { fmtTime, fmtDate, pad, getLocalDateString } from "@/lib/format";
-import { printLoadingToken } from "@/lib/print-token";
+import { printLoadingToken, printLoadingTokens } from "@/lib/print-token";
 import type { Ticket } from "@/lib/types";
 import { QrCode } from "@/components/qr-code";
 import { motion, AnimatePresence } from "framer-motion";
@@ -24,8 +24,12 @@ export default function LoadingPage() {
   const loadingQueue = filterBySearch(tickets, search).filter(
     (t) => t.status === "awaiting_loading" || t.status === "awaiting_billing",
   );
+  const activeGateTickets = tickets.filter(
+    (t) => t.status === "awaiting_loading" || t.status === "awaiting_billing",
+  );
 
   const [boe, setBoe] = useState("");
+  const [workOrder, setWorkOrder] = useState("");
   const [agent, setAgent] = useState("");
   const [remarks, setRemarks] = useState("");
   const [gateToken, setGateToken] = useState("");
@@ -48,12 +52,29 @@ export default function LoadingPage() {
     );
   };
 
+  const prevSelectedIdsRef = useRef<string[]>([]);
+  const prevActiveSearchRef = useRef<{ field: string; value: string } | null>(null);
+  const workOrderRef = useRef(workOrder);
+  useEffect(() => { workOrderRef.current = workOrder; }, [workOrder]);
+
   // Synchronize inputs with selectedTicketIds selection
   useEffect(() => {
     if (activeSearch !== null) return;
 
+    // Guard: Only run when the selected ticket IDs actually change
+    const prevIds = prevSelectedIdsRef.current;
+    const hasChanged =
+      selectedTicketIds.length !== prevIds.length ||
+      selectedTicketIds.some((id, idx) => id !== prevIds[idx]);
+
+    if (!hasChanged) {
+      return;
+    }
+    prevSelectedIdsRef.current = selectedTicketIds;
+
     if (selectedTicketIds.length === 0) {
       setBoe("");
+      // Keep manual workOrder if typed, don't clear
       setAgent("");
       setRemarks("");
       setGateToken("");
@@ -66,12 +87,18 @@ export default function LoadingPage() {
       const matched = tickets.find((t) => t.id === selectedTicketIds[0]);
       if (matched) {
         setBoe(matched.boe);
+        // Only override workOrder from ticket if user hasn't already typed one
+        if (matched.workOrder && !workOrderRef.current.trim()) {
+          setWorkOrder(matched.workOrder);
+        }
         setAgent(matched.billingAgent || matched.agent);
         setRemarks(matched.loadingRemarks || "");
-        setGateToken(`G-${String(matched.serial).padStart(3, "0")}`);
+        // Gate Token is null/empty for billing-direct vehicles
         if (matched.status === "awaiting_billing") {
+          setGateToken("");
           setBillingToken("");
         } else {
+          setGateToken(`G-${String(matched.serial).padStart(3, "0")}`);
           setBillingToken(`B-${String(matched.billingSerial ?? matched.serial).padStart(3, "0")}`);
         }
         setMatchedTicket(matched);
@@ -80,19 +107,31 @@ export default function LoadingPage() {
       // Multiple selected
       const selectedTickets = tickets.filter((t) => selectedTicketIds.includes(t.id));
       const boes = selectedTickets.map((t) => t.boe).join(", ");
-      const gateTokens = selectedTickets.map((t) => `G-${String(t.serial).padStart(3, "0")}`).join(", ");
+      const workOrders = selectedTickets.map((t) => t.workOrder || "").filter(Boolean).join(", ");
+      const gateTokens = selectedTickets
+        .map((t) => t.status === "awaiting_billing" ? "N/A" : `G-${String(t.serial).padStart(3, "0")}`)
+        .join(", ");
       const billingTokens = selectedTickets
         .map((t) => t.status === "awaiting_billing" ? "PENDING" : `B-${String(t.billingSerial ?? t.serial).padStart(3, "0")}`)
         .join(", ");
       
       setBoe(boes);
+      // Only prefill workOrder from tickets if user hasn't typed one
+      if (workOrders && !workOrderRef.current.trim()) {
+        setWorkOrder(workOrders);
+      }
       setGateToken(gateTokens);
       setBillingToken(billingTokens);
       
-      // Prefill Agent with the first selected ticket's agent, or common value
-      if (selectedTickets[0]) {
-        setAgent(selectedTickets[0].billingAgent || selectedTickets[0].agent);
-      }
+      // Prefill Agent with all selected ticket agents, joining multiple agent names if needed
+      const selectedAgents = Array.from(
+        new Set(
+          selectedTickets
+            .map((t) => t.billingAgent || t.agent)
+            .filter(Boolean),
+        ),
+      );
+      setAgent(selectedAgents.join(", ") || "");
       setRemarks("");
       setMatchedTicket(null);
     }
@@ -100,13 +139,28 @@ export default function LoadingPage() {
 
   // Auto-populate form fields if any typed search field matches a ticket in the queue
   useEffect(() => {
-    if (!activeSearch) return;
+    if (!activeSearch) {
+      prevActiveSearchRef.current = null;
+      return;
+    }
+
+    // Guard: Only run when the active search field or value actually changes
+    const prevSearch = prevActiveSearchRef.current;
+    if (
+      prevSearch &&
+      prevSearch.field === activeSearch.field &&
+      prevSearch.value === activeSearch.value
+    ) {
+      return;
+    }
+    prevActiveSearchRef.current = activeSearch;
 
     const { field, value } = activeSearch;
     const cleanValue = value.trim().toUpperCase();
 
     if (!cleanValue) {
       setBoe("");
+      // Keep manual workOrder if typed, don't clear
       setAgent("");
       setRemarks("");
       setGateToken("");
@@ -119,15 +173,27 @@ export default function LoadingPage() {
     let matched: Ticket | undefined = undefined;
 
     if (field === "boe") {
-      matched = tickets.find(
-        (t) => t.boe.toUpperCase() === cleanValue && (t.status === "awaiting_loading" || t.status === "awaiting_billing")
+      const matches = tickets.filter(
+        (t) =>
+          t.boe.toUpperCase() === cleanValue &&
+          (t.status === "awaiting_loading" || t.status === "awaiting_billing")
       );
+      const preferredMatches = matches.filter((t) => t.status === "awaiting_loading");
+      const resolvedMatches = preferredMatches.length > 0 ? preferredMatches : matches;
+      if (resolvedMatches.length > 0) {
+        setSelectedTicketIds(resolvedMatches.map((t) => t.id));
+        matched = resolvedMatches[0];
+      } else {
+        setSelectedTicketIds([]);
+      }
     } else if (field === "gateToken") {
       const match = cleanValue.match(/^(?:G-)?(0*[1-9]\d*)$/);
       if (match) {
         const serial = parseInt(match[1], 10);
         matched = tickets.find(
-          (t) => t.serial === serial && t.status === "awaiting_billing"
+          (t) =>
+            t.serial === serial &&
+            (t.status === "awaiting_loading" || t.status === "awaiting_billing")
         );
       }
     } else if (field === "billingToken") {
@@ -142,9 +208,20 @@ export default function LoadingPage() {
 
     if (matched) {
       if (field !== "boe") setBoe(matched.boe);
+      // Only prefill workOrder from ticket if user hasn't typed one
+      if (matched.workOrder && !workOrderRef.current.trim()) {
+        setWorkOrder(matched.workOrder);
+      }
       setAgent(matched.billingAgent || matched.agent);
       setRemarks(matched.loadingRemarks || "");
-      if (field !== "gateToken") setGateToken(`G-${String(matched.serial).padStart(3, "0")}`);
+      if (field !== "gateToken") {
+        // Gate Token is null/empty for billing-direct vehicles
+        if (matched.status === "awaiting_billing") {
+          setGateToken("");
+        } else {
+          setGateToken(`G-${String(matched.serial).padStart(3, "0")}`);
+        }
+      }
       if (field !== "billingToken") {
         if (matched.status === "awaiting_billing") {
           setBillingToken("");
@@ -159,6 +236,21 @@ export default function LoadingPage() {
     }
   }, [activeSearch, tickets]);
 
+  // Click outside listener to close dropdowns
+  useEffect(() => {
+    function handleGlobalClick(e: MouseEvent) {
+      const target = e.target as HTMLElement;
+      if (!target.closest(".billing-dropdown-container")) {
+        setShowBillingDropdown(false);
+      }
+      if (!target.closest(".gate-dropdown-container")) {
+        setShowGateDropdown(false);
+      }
+    }
+    document.addEventListener("mousedown", handleGlobalClick);
+    return () => document.removeEventListener("mousedown", handleGlobalClick);
+  }, []);
+
   const recentDone = [...tickets]
     .filter((t) =>
       t.loadingEnd &&
@@ -171,10 +263,24 @@ export default function LoadingPage() {
   function selectFromQueue(t: Ticket) {
     setSelectedTicketIds([t.id]);
     setActiveSearch(null);
-    toast.success(`Loaded details for ${t.vehicle} (WO: ${t.boe})`);
+    toast.success(`Loaded details for ${t.vehicle} (BOE: ${t.boe})`);
+  }
+
+  function handleConfirmClick() {
+    confirm();
   }
 
   async function confirm() {
+    // Validate required fields
+    if (!workOrder.trim()) {
+      toast.error("Work Order No is required.");
+      return;
+    }
+    if (selectedTicketIds.length === 0 && !boe.trim()) {
+      toast.error("Select a token or enter BOE to display.");
+      return;
+    }
+
     setBusy(true);
 
     const targetsToProcess: Ticket[] = [];
@@ -182,11 +288,13 @@ export default function LoadingPage() {
     if (selectedTicketIds.length > 0) {
       const selectedTickets = tickets.filter((t) => selectedTicketIds.includes(t.id));
       targetsToProcess.push(...selectedTickets);
-    } else if (boe.trim()) {
-      const target = tickets.find(
+    } else {
+      // If no explicit selection, pick active gate ticket(s) matching the BOE
+      const allMatches = tickets.filter(
         (t) => t.boe.toUpperCase() === boe.trim().toUpperCase() && (t.status === "awaiting_loading" || t.status === "awaiting_billing")
       );
-      if (target) targetsToProcess.push(target);
+      const preferredMatches = allMatches.filter((t) => t.status === "awaiting_loading");
+      targetsToProcess.push(...(preferredMatches.length > 0 ? preferredMatches : allMatches));
     }
 
     if (targetsToProcess.length === 0) {
@@ -198,12 +306,14 @@ export default function LoadingPage() {
     let successCount = 0;
     let lastProcessedTicket: Ticket | null = null;
 
+    const printTickets: Ticket[] = [];
     for (const target of targetsToProcess) {
       const gTokenVal = `G-${String(target.serial).padStart(3, "0")}`;
       const bTokenVal = target.status === "awaiting_billing" ? "" : `B-${String(target.billingSerial ?? target.serial).padStart(3, "0")}`;
       
       const ok = await ticketAction(target.id, "complete-loading", {
         boe: target.boe,
+        workOrder: workOrder.trim(),
         agent: agent.trim() || target.billingAgent || target.agent,
         remarks: remarks.trim() || target.loadingRemarks || "",
         gateToken: gTokenVal,
@@ -215,6 +325,7 @@ export default function LoadingPage() {
         const freshTicket = useStore.getState().tickets.find((t) => t.id === target.id);
         const printTicket = freshTicket || {
           ...target,
+          workOrder: workOrder.trim(),
           loadingEnd: new Date().toISOString(),
           loadingAgent: agent.trim() || target.billingAgent || target.agent,
           loadingRemarks: remarks.trim(),
@@ -222,14 +333,31 @@ export default function LoadingPage() {
           manualBillingToken: bTokenVal || null,
         };
         lastProcessedTicket = printTicket;
-        await printLoadingToken(printTicket);
+        printTickets.push(printTicket);
       }
     }
 
-    setBusy(false);
+    const groupedByVehicle = printTickets.reduce<Record<string, Ticket[]>>((acc, ticket) => {
+      const key = ticket.vehicle || `UNKNOWN-${ticket.id}`;
+      acc[key] = acc[key] || [];
+      acc[key].push(ticket);
+      return acc;
+    }, {});
+
+    // Print each ticket individually with proper delays
+    for (let i = 0; i < printTickets.length; i++) {
+      const ticket = printTickets[i];
+      // Add delay between prints to prevent conflicts and allow print dialog to complete
+      if (i > 0) {
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+      // Print each ticket to its own iframe (don't share windows)
+      await printLoadingToken(ticket);
+    }
 
     if (successCount > 0) {
       setBoe("");
+      // Do NOT clear workOrder — user should re-use it for the next vehicle
       setAgent("");
       setRemarks("");
       setGateToken("");
@@ -241,8 +369,10 @@ export default function LoadingPage() {
       if (lastProcessedTicket) {
         setLastLoaded(lastProcessedTicket);
       }
+      setBusy(false);
     } else {
       toast.error("Failed to process approval.");
+      setBusy(false);
     }
   }
 
@@ -264,6 +394,7 @@ export default function LoadingPage() {
     
     if (successCount > 0) {
       setBoe("");
+      // Do NOT clear workOrder — keep it for next vehicle
       setAgent("");
       setRemarks("");
       setGateToken("");
@@ -291,119 +422,16 @@ export default function LoadingPage() {
               Work Order No *
             </label>
             <input
-              value={boe}
-              onChange={(e) => {
-                const val = e.target.value;
-                setBoe(val);
-                setActiveSearch({ field: "boe", value: val });
-              }}
-              onKeyDown={(e) => e.key === "Enter" && confirm()}
-              placeholder="e.g. WO-10024"
-              className="w-full rounded-lg border border-input bg-slate-50 dark:bg-black px-3.5 py-3 text-xl font-bold uppercase outline-none focus:ring-2 focus:ring-ring"
+              value={workOrder}
+              onChange={(e) => setWorkOrder(e.target.value.toUpperCase())}
+              onKeyDown={(e) => e.key === "Enter" && handleConfirmClick()}
+              placeholder="Enter Work Order No"
+              className="w-full rounded-lg border border-input bg-slate-50 dark:bg-black px-3.5 py-3 text-xl font-bold uppercase placeholder:text-slate-400 placeholder:font-normal placeholder:normal-case outline-none focus:ring-2 focus:ring-ring"
             />
           </div>
 
           <div className="mb-5 grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <div>
-              <label className="mb-2 block text-[13px] font-bold text-slate-700">
-                CHA / Agent Name
-              </label>
-              <input
-                value={agent}
-                onChange={(e) => setAgent(e.target.value)}
-                placeholder="Agent name..."
-                className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-3 text-sm font-semibold outline-none focus:border-blue-300 focus:ring-[3px] focus:ring-blue-100"
-              />
-            </div>
-            <div className="relative">
-              <label className="mb-2 flex items-center justify-between text-[13px] font-bold text-slate-700">
-                <span>Gate Token No</span>
-                <button
-                  type="button"
-                  onClick={() => setShowGateDropdown(!showGateDropdown)}
-                  className="text-xs font-bold text-blue-600 hover:text-blue-700 flex items-center gap-0.5 cursor-pointer"
-                >
-                  {showGateDropdown ? "▲ Hide List" : "▼ Select Gate"}
-                </button>
-              </label>
-              <div className="relative">
-                <input
-                  value={gateToken}
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    setGateToken(val);
-                    setActiveSearch({ field: "gateToken", value: val });
-                  }}
-                  placeholder="e.g. G-001"
-                  className="w-full rounded-lg border border-input bg-slate-50 dark:bg-black px-3.5 py-3 text-sm font-semibold outline-none focus:ring-2 focus:ring-ring pr-10"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowGateDropdown(!showGateDropdown)}
-                  className="absolute inset-y-0 right-0 flex items-center pr-3 text-slate-400 hover:text-slate-650 cursor-pointer"
-                >
-                  <ChevronDown size={16} />
-                </button>
-              </div>
-
-              {showGateDropdown && (
-                <div className="absolute left-0 right-0 z-30 mt-1 max-h-48 overflow-y-auto rounded-lg border border-slate-200 bg-white p-1 shadow-lg dark:bg-slate-900 dark:border-slate-800">
-                  <div className="flex items-center justify-between px-3 py-1.5 border-b border-slate-100 dark:border-slate-800 mb-1">
-                    <span className="text-[10px] font-extrabold text-slate-400 uppercase">Select Multiple Gate Passes</span>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const allGateIds = tickets.filter((t) => t.status === "awaiting_billing").map((t) => t.id);
-                        setSelectedTicketIds((prev) => {
-                          const hasAll = allGateIds.every((id) => prev.includes(id));
-                          if (hasAll) {
-                            return prev.filter((id) => !allGateIds.includes(id));
-                          } else {
-                            return Array.from(new Set([...prev, ...allGateIds]));
-                          }
-                        });
-                      }}
-                      className="text-[10px] font-bold text-blue-600 hover:text-blue-700 cursor-pointer"
-                    >
-                      Toggle All
-                    </button>
-                  </div>
-                  {tickets
-                    .filter((t) => t.status === "awaiting_billing")
-                    .map((t) => {
-                      const gNum = `G-${String(t.serial).padStart(3, "0")}`;
-                      const isChecked = selectedTicketIds.includes(t.id);
-                      return (
-                        <div
-                          key={t.id}
-                          onClick={() => toggleSelectTicket(t.id)}
-                          className="w-full text-left px-3 py-2 text-xs hover:bg-slate-100 dark:hover:bg-slate-800 rounded-md transition-colors flex items-center gap-2 text-slate-700 dark:text-slate-200 cursor-pointer"
-                        >
-                          <input
-                            type="checkbox"
-                            checked={isChecked}
-                            onChange={() => {}} // handled by onClick wrapper
-                            className="rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
-                          />
-                          <div className="flex-1 flex items-center justify-between">
-                            <span className="font-extrabold">{gNum}</span>
-                            <span className="text-[10px] text-slate-400 font-semibold truncate max-w-[150px]">
-                              {t.vehicle} · {t.boe}
-                            </span>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  {tickets.filter((t) => t.status === "awaiting_billing").length === 0 && (
-                    <p className="text-center text-xs text-slate-400 py-3">No active gate passes waiting.</p>
-                  )}
-                </div>
-              )}
-            </div>
-          </div>
-
-          <div className="mb-5 grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <div className="relative">
+            <div className="relative billing-dropdown-container">
               <label className="mb-2 flex items-center justify-between text-[13px] font-bold text-slate-700">
                 <span>Billing Token No</span>
                 <button
@@ -422,7 +450,7 @@ export default function LoadingPage() {
                     setBillingToken(val);
                     setActiveSearch({ field: "billingToken", value: val });
                   }}
-                  placeholder="e.g. B-001"
+                  placeholder="B-001"
                   className="w-full rounded-lg border border-input bg-slate-50 dark:bg-black px-3.5 py-3 text-sm font-semibold outline-none focus:ring-2 focus:ring-ring pr-10"
                 />
                 <button
@@ -470,13 +498,16 @@ export default function LoadingPage() {
                           <input
                             type="checkbox"
                             checked={isChecked}
-                            onChange={() => {}} // handled by onClick wrapper
+                            onChange={(e) => {
+                              e.stopPropagation();
+                              toggleSelectTicket(t.id);
+                            }}
                             className="rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
                           />
                           <div className="flex-1 flex items-center justify-between">
                             <span className="font-extrabold">{bNum}</span>
                             <span className="text-[10px] text-slate-400 font-semibold truncate max-w-[150px]">
-                              {t.vehicle} · {t.boe}
+                              {t.boe} · {t.vehicle}
                             </span>
                           </div>
                         </div>
@@ -488,16 +519,157 @@ export default function LoadingPage() {
                 </div>
               )}
             </div>
+
+            <div className="relative gate-dropdown-container">
+              <label className="mb-2 flex items-center justify-between text-[13px] font-bold text-slate-700">
+                <span>Gate Token No</span>
+                <button
+                  type="button"
+                  onClick={() => setShowGateDropdown(!showGateDropdown)}
+                  className="text-xs font-bold text-blue-600 hover:text-blue-700 flex items-center gap-0.5 cursor-pointer"
+                >
+                  {showGateDropdown ? "▲ Hide List" : "▼ Select Gate"}
+                </button>
+              </label>
+              <div className="relative">
+                <input
+                  value={gateToken}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setGateToken(val);
+                    setActiveSearch({ field: "gateToken", value: val });
+                  }}
+                  placeholder="G-001"
+                  className="w-full rounded-lg border border-input bg-slate-50 dark:bg-black px-3.5 py-3 text-sm font-semibold outline-none focus:ring-2 focus:ring-ring pr-10"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowGateDropdown(!showGateDropdown)}
+                  className="absolute inset-y-0 right-0 flex items-center pr-3 text-slate-400 hover:text-slate-650 cursor-pointer"
+                >
+                  <ChevronDown size={16} />
+                </button>
+              </div>
+
+              {showGateDropdown && (
+                <div className="absolute left-0 right-0 z-30 mt-1 max-h-48 overflow-y-auto rounded-lg border border-slate-200 bg-white p-1 shadow-lg dark:bg-slate-900 dark:border-slate-800">
+                  <div className="flex items-center justify-between px-3 py-1.5 border-b border-slate-100 dark:border-slate-800 mb-1">
+                    <span className="text-[10px] font-extrabold text-slate-400 uppercase">Select Multiple Gate Passes</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const allGateIds = activeGateTickets.map((t) => t.id);
+                        setSelectedTicketIds((prev) => {
+                          const hasAll = allGateIds.every((id) => prev.includes(id));
+                          if (hasAll) {
+                            return prev.filter((id) => !allGateIds.includes(id));
+                          } else {
+                            return Array.from(new Set([...prev, ...allGateIds]));
+                          }
+                        });
+                      }}
+                      className="text-[10px] font-bold text-blue-600 hover:text-blue-700 cursor-pointer"
+                    >
+                      Toggle All
+                    </button>
+                  </div>
+                  {activeGateTickets
+                    .map((t) => {
+                      const gNum = `G-${String(t.serial).padStart(3, "0")}`;
+                      const isChecked = selectedTicketIds.includes(t.id);
+                      return (
+                        <div
+                          key={t.id}
+                          onClick={() => toggleSelectTicket(t.id)}
+                          className="w-full text-left px-3 py-2 text-xs hover:bg-slate-100 dark:hover:bg-slate-800 rounded-md transition-colors flex items-center gap-2 text-slate-700 dark:text-slate-200 cursor-pointer"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={isChecked}
+                            onChange={(e) => {
+                              e.stopPropagation();
+                              toggleSelectTicket(t.id);
+                            }}
+                            className="rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
+                          />
+                          <div className="flex-1 flex items-center justify-between">
+                            <span className="font-extrabold">{gNum}</span>
+                            <span className="text-[10px] text-slate-400 font-semibold truncate max-w-[150px]">
+                              {t.vehicle} · {t.boe}
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  {tickets.filter((t) => t.status === "awaiting_loading" || t.status === "awaiting_billing").length === 0 && (
+                    <p className="text-center text-xs text-slate-400 py-3">No active gate passes waiting.</p>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="mb-5 grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
               <label className="mb-2 block text-[13px] font-bold text-slate-700">
-                Date & Time (Auto Generated)
+                BOE (display only)
               </label>
               <input
-                value={`${fmtDate(new Date())} ${fmtTime(new Date().toISOString())}`}
+                value={boe}
                 readOnly
-                className="w-full rounded-lg border border-slate-200 bg-transparent px-3.5 py-3 text-sm font-semibold text-slate-500 dark:text-slate-400 outline-none cursor-not-allowed"
+                placeholder="Auto fill from selected token"
+                className="w-full rounded-lg border border-input bg-transparent px-3.5 py-3 text-sm text-slate-500 dark:text-slate-400 outline-none cursor-not-allowed"
               />
             </div>
+            <div>
+              <label className="mb-2 block text-[13px] font-bold text-slate-700">
+                CHA / Agent Name
+              </label>
+              <input
+                value={agent}
+                onChange={(e) => setAgent(e.target.value)}
+                placeholder="Agent name..."
+                className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-3 text-sm font-semibold outline-none focus:border-blue-300 focus:ring-[3px] focus:ring-blue-100"
+              />
+            </div>
+          </div>
+
+          <div className="mb-5">
+            <label className="mb-2 block text-[13px] font-bold text-slate-700">
+              Date & Time (Auto Generated)
+            </label>
+            <input
+              value={`${fmtDate(new Date())} ${fmtTime(new Date().toISOString())}`}
+              readOnly
+              className="w-full rounded-lg border border-slate-200 bg-transparent px-3.5 py-3 text-sm font-semibold text-slate-500 dark:text-slate-400 outline-none cursor-not-allowed"
+            />
+          </div>
+
+          <label className="mb-2 block text-[13px] font-bold text-slate-700">
+            Loading Remarks (Optional)
+          </label>
+          <textarea
+            value={remarks}
+            onChange={(e) => setRemarks(e.target.value)}
+            placeholder="Loading bays status, carrier notes..."
+            className="mb-5 min-h-24 w-full resize-y rounded-lg border border-input bg-slate-50 dark:bg-black px-3.5 py-3 text-sm outline-none focus:ring-2 focus:ring-ring"
+          />
+
+          <div className="flex items-center justify-end gap-3 border-t border-slate-100 pt-5">
+            <button
+              onClick={handleSkip}
+              disabled={!matchedTicket || busy}
+              className="flex items-center gap-2 rounded-lg border border-destructive bg-transparent px-5 py-3 text-sm font-extrabold text-destructive transition-colors hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-30 cursor-pointer active:scale-95 transition-all"
+            >
+              <Ban size={15} /> Skip/Requeue
+            </button>
+            <button
+              onClick={handleConfirmClick}
+              disabled={(selectedTicketIds.length === 0 && !boe.trim()) || busy}
+              className="flex items-center gap-2 rounded-lg bg-primary px-6 py-3.5 text-sm font-extrabold text-primary-foreground shadow-sm transition-colors hover:bg-primary/95 disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground cursor-pointer active:scale-[0.99] transition-all"
+            >
+              {busy ? "Processing…" : "PROCESS & PRINT TOKEN"}
+            </button>
           </div>
 
           {/* Batch Selection Details Card */}
@@ -642,33 +814,6 @@ export default function LoadingPage() {
               </div>
             </div>
           )}
-
-          <label className="mb-2 block text-[13px] font-bold text-slate-700">
-            Loading Remarks (Optional)
-          </label>
-          <textarea
-            value={remarks}
-            onChange={(e) => setRemarks(e.target.value)}
-            placeholder="Loading bays status, carrier notes..."
-            className="mb-5 min-h-24 w-full resize-y rounded-lg border border-input bg-slate-50 dark:bg-black px-3.5 py-3 text-sm outline-none focus:ring-2 focus:ring-ring"
-          />
-
-          <div className="flex items-center justify-end gap-3 border-t border-slate-100 pt-5">
-            <button
-              onClick={handleSkip}
-              disabled={!matchedTicket || busy}
-              className="flex items-center gap-2 rounded-lg border border-destructive bg-transparent px-5 py-3 text-sm font-extrabold text-destructive transition-colors hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-30 cursor-pointer active:scale-95 transition-all"
-            >
-              <Ban size={15} /> Skip/Requeue
-            </button>
-            <button
-              onClick={confirm}
-              disabled={!boe.trim() || busy}
-              className="flex items-center gap-2 rounded-lg bg-primary px-6 py-3.5 text-sm font-extrabold text-primary-foreground shadow-sm transition-colors hover:bg-primary/95 disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground cursor-pointer active:scale-[0.99] transition-all"
-            >
-              {busy ? "Processing…" : "PROCESS & PRINT TOKEN"}
-            </button>
-          </div>
         </Panel>
 
         {/* Right Column: Preview */}
@@ -694,8 +839,23 @@ export default function LoadingPage() {
               <div className="my-3 border-t border-dashed border-slate-200" />
               <div className="mb-4 flex flex-col gap-1.5 text-left text-xs">
                 <TokenRow k="WORK ORDER NO:" v={boe || lastLoaded?.boe || "—"} />
+                <TokenRow
+                  k="VEHICLE NO:"
+                  v={
+                    (matchedTicket?.createdSource === "billing" || lastLoaded?.createdSource === "billing")
+                      ? "N/A"
+                      : (matchedTicket?.vehicle || lastLoaded?.vehicle || "—")
+                  }
+                />
                 <TokenRow k="CHA / AGENT:" v={agent || lastLoaded?.loadingAgent || lastLoaded?.agent || "—"} />
-                <TokenRow k="GATE TOKEN NO:" v={gateToken || (lastLoaded?.manualGateToken || (lastLoaded ? `G-${String(lastLoaded.serial).padStart(3, "0")}` : "—"))} />
+                <TokenRow
+                  k="GATE TOKEN NO:"
+                  v={
+                    (matchedTicket?.createdSource === "billing" || lastLoaded?.createdSource === "billing")
+                      ? "N/A"
+                      : (gateToken || (lastLoaded?.manualGateToken || (lastLoaded ? `G-${String(lastLoaded.serial).padStart(3, "0")}` : "—")))
+                  }
+                />
                 <TokenRow k="BILLING TOKEN:" v={billingToken || (lastLoaded?.manualBillingToken || (lastLoaded ? `B-${String(lastLoaded.billingSerial ?? lastLoaded.serial).padStart(3, "0")}` : "—"))} />
                 <TokenRow
                   k="LOADING TIME:"
@@ -720,7 +880,7 @@ export default function LoadingPage() {
             <button
               onClick={() => {
                 if (boe.trim()) {
-                  confirm();
+                  handleConfirmClick();
                 } else if (lastLoaded) {
                   printLoadingToken(lastLoaded);
                 }

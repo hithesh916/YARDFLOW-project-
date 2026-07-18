@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { MapPin, Printer, Truck } from "lucide-react";
 import { toast } from "sonner";
 import { Panel } from "@/components/panel";
@@ -24,6 +24,50 @@ export default function EntryPage() {
   const [remarks, setRemarks] = useState("");
   const [busy, setBusy] = useState(false);
   const [entriesExpanded, setEntriesExpanded] = useState(false);
+  // Cross-gate: BOE pre-filled from billing-gate record
+  const [prefillBoe, setPrefillBoe] = useState<string | null>(null);
+
+  // Cross-gate lookup: when vehicle or boe is typed, check if billing gate processed this vehicle first
+  useEffect(() => {
+    const v = vehicle.trim().toUpperCase();
+    const b = boe.trim().toUpperCase();
+
+    if (!v && !b) {
+      setPrefillBoe(null);
+      return;
+    }
+
+    // Try to find a match by BOE first (since billing gate uses BOE as primary key)
+    let matched = tickets.find(
+      (t) =>
+        t.boe.toUpperCase() === b &&
+        t.createdSource === "billing" &&
+        t.status !== "exited" &&
+        t.status !== "held"
+    );
+
+    // Fallback: match by vehicle number
+    if (!matched && v) {
+      matched = tickets.find(
+        (t) =>
+          (t.vehicle.toUpperCase() === v || t.boe.toUpperCase() === v) &&
+          t.createdSource === "billing" &&
+          t.status !== "exited" &&
+          t.status !== "held"
+      );
+    }
+
+    if (matched) {
+      if (boe.trim().toUpperCase() !== matched.boe.toUpperCase()) {
+        setBoe(matched.boe);
+      }
+      setAgent(matched.billingAgent || matched.agent || "");
+      setRemarks(matched.billingRemarks || matched.remarks || "");
+      setPrefillBoe(matched.boe);
+    } else {
+      setPrefillBoe(null);
+    }
+  }, [vehicle, boe, tickets]);
 
   const recent = [...tickets]
     .filter(
@@ -59,12 +103,16 @@ export default function EntryPage() {
       return;
     }
 
-    // Active visit check
+    // Active visit check: only block when same vehicle + same BOE is already active
     const activeExists = tickets.some(
-      (t) => t.vehicle === v && t.status !== "exited" && t.status !== "held"
+      (t) =>
+        t.vehicle === v &&
+        t.boe.toUpperCase() === b &&
+        t.status !== "exited" &&
+        t.status !== "held"
     );
     if (activeExists) {
-      toast.error("This vehicle already has an active yard visit.");
+      toast.error("This vehicle already has an active yard visit for the same BOE.");
       return;
     }
 
@@ -82,6 +130,7 @@ export default function EntryPage() {
       setBoe("");
       setAgent("");
       setRemarks("");
+      setPrefillBoe(null);
     }
   }
 
@@ -100,21 +149,33 @@ export default function EntryPage() {
         </label>
         <input
           value={vehicle}
-          onChange={(e) => setVehicle(e.target.value)}
+          onChange={(e) => setVehicle(e.target.value.toUpperCase())}
           onKeyDown={(e) => e.key === "Enter" && generate()}
-          placeholder="ABC-1234"
-          className="mb-5 w-full rounded-lg border border-input bg-slate-50 dark:bg-black px-3.5 py-3 text-xl font-bold uppercase outline-none focus:ring-2 focus:ring-ring"
+          placeholder="TN 01 AA 1234"
+          className="mb-5 w-full rounded-lg border border-input bg-slate-50 dark:bg-black px-3.5 py-3 text-xl font-bold uppercase placeholder:text-slate-400 placeholder:font-normal placeholder:normal-case outline-none focus:ring-2 focus:ring-ring"
         />
+
+        {/* BOE — read-only when auto-filled from Billing Gate, editable otherwise */}
         <div className="mb-5 grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div>
-            <label className="mb-2 block text-[13px] font-bold text-slate-700">
-              Work Order No *
+            <label className="mb-2 flex items-center gap-2 text-[13px] font-bold text-slate-700">
+              BOE *
+              {prefillBoe && (
+                <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 dark:bg-emerald-900/30 px-2 py-0.5 text-[10px] font-extrabold text-emerald-700 dark:text-emerald-400 uppercase tracking-wide">
+                  <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                  Linked from Billing Gate
+                </span>
+              )}
             </label>
             <input
               value={boe}
-              onChange={(e) => setBoe(e.target.value)}
-              placeholder="e.g. WO-10024"
-              className="w-full rounded-lg border border-input bg-slate-50 dark:bg-black px-3.5 py-3 text-sm outline-none focus:ring-2 focus:ring-ring"
+              onChange={(e) => setBoe(e.target.value.toUpperCase())}
+              placeholder="MAA1234567890"
+              className={`w-full rounded-lg border px-3.5 py-3 text-sm font-bold outline-none focus:ring-2 focus:ring-ring ${
+                prefillBoe
+                  ? "border-emerald-300 bg-emerald-50/50 dark:border-emerald-800/30 dark:bg-emerald-950/10 text-emerald-800 dark:text-emerald-300"
+                  : "border-input bg-slate-50 dark:bg-black"
+              }`}
             />
           </div>
           <div>
@@ -175,7 +236,7 @@ export default function EntryPage() {
           <div className="my-3 border-t border-dashed border-slate-200" />
           <div className="mb-4 flex flex-col gap-1.5 text-left text-xs">
             <TokenRow k="VEHICLE:" v={vehicle || lastToken?.vehicle || "—"} />
-            <TokenRow k="WORK ORDER NO:" v={boe || lastToken?.boe || "—"} />
+            <TokenRow k="BOE:" v={boe || lastToken?.boe || "—"} />
             <TokenRow k="CHA / AGENT:" v={agent || lastToken?.agent || "—"} />
             <TokenRow
               k="TIME:"
@@ -242,7 +303,7 @@ export default function EntryPage() {
                 >
                   <div className="flex flex-col items-start">
                     <span className="font-extrabold text-[12px] text-slate-800">{t.vehicle}</span>
-                    <span className="text-[10px] text-slate-400">WO: {t.boe}</span>
+                    <span className="text-[10px] text-slate-400">BOE: {t.boe}</span>
                   </div>
                   <div className="flex items-center gap-3">
                     <div className="text-right">

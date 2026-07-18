@@ -26,6 +26,7 @@ export async function POST(
     case "complete-loading":
       state = await completeLoading(id, {
         boe: typeof body.boe === "string" ? body.boe : undefined,
+        workOrder: typeof body.workOrder === "string" ? body.workOrder : undefined,
         agent: typeof body.agent === "string" ? body.agent : undefined,
         remarks: typeof body.remarks === "string" ? body.remarks : undefined,
         gateToken: typeof body.gateToken === "string" ? body.gateToken : undefined,
