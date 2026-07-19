@@ -69,6 +69,15 @@ const TITLES: Record<string, string> = {
   "/superadmin": "Super-Admin Hub",
 };
 
+const MODULE_ROUTES: Record<string, string> = {
+  "/": "dashboard",
+  "/entry": "entry",
+  "/billing": "billing",
+  "/loading": "loading",
+  "/exit": "exit",
+  "/reports": "reports",
+};
+
 function NavLink({ item, active }: { item: NavItem; active: boolean }) {
   const Icon = item.icon;
   return (
@@ -121,6 +130,7 @@ function ThemeToggle() {
 const ROLE_PRIMARY_PATHS: Record<string, string> = {
   "superadmin": "/superadmin",
   "Administrator": "/admin",
+  "Admin": "/admin",
   "Gate Operator": "/entry",
   "Billing Agent": "/billing",
   "Loading Operator": "/loading",
@@ -138,9 +148,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const startPolling = useStore((s) => s.startPolling);
   const stopPolling = useStore((s) => s.stopPolling);
   const alerts = useStore((s) => s.alerts);
+  const tenants = useStore((s) => s.tenants);
   
   const currentUser = useStore((s) => s.currentUser);
   const logout = useStore((s) => s.logout);
+
+  const currentTenant = currentUser?.tenantId 
+    ? tenants.find(t => t.id === currentUser.tenantId)
+    : null;
 
   const unacked = alerts.filter((a) => !a.acknowledged).length;
   const [now, setNow] = useState<Date | null>(null);
@@ -207,12 +222,19 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }
 
   // Filter navigation links according to current user's permissions (Dashboard is always visible)
-  const allowedPrimary = PRIMARY.filter((item) =>
-    item.href === "/" || (currentUser?.allowedPaths.includes(item.href) ?? false),
-  );
-  const allowedSecondary = SECONDARY.filter((item) =>
-    currentUser?.allowedPaths.includes(item.href),
-  );
+  const allowedPrimary = PRIMARY.filter((item) => {
+    const isAllowedByRole = item.href === "/" || (currentUser?.allowedPaths.includes(item.href) ?? false);
+    const requiredModule = MODULE_ROUTES[item.href];
+    const isAllowedByTenant = !requiredModule || !currentTenant || !currentTenant.modules || currentTenant.modules.includes(requiredModule);
+    return isAllowedByRole && isAllowedByTenant;
+  });
+
+  const allowedSecondary = SECONDARY.filter((item) => {
+    const isAllowedByRole = currentUser?.allowedPaths.includes(item.href);
+    const requiredModule = MODULE_ROUTES[item.href];
+    const isAllowedByTenant = !requiredModule || !currentTenant || !currentTenant.modules || currentTenant.modules.includes(requiredModule);
+    return isAllowedByRole && isAllowedByTenant;
+  });
 
   const canCreateTicket = currentUser?.allowedPaths.includes("/entry");
   const isPathAllowed = pathname === "/" || (currentUser?.allowedPaths.includes(pathname) ?? false);

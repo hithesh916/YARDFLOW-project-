@@ -139,6 +139,7 @@ export async function printToken(ticket: Ticket): Promise<void> {
 <body>
   <div class="ticket">
     <div class="brand">
+      ${settings?.logoUrl ? `<img src="${settings.logoUrl}" alt="Company Logo" style="max-height: 40px; margin-bottom: 5px; object-fit: contain;" />` : ""}
       <p class="name">${settings?.companyName ? escapeHtml(settings.companyName) : "YARDFLOW MANAGER"}</p>
       ${settings?.terminalName ? `<div class="terminal-lbl">${escapeHtml(settings.terminalName)}</div>` : ""}
       ${settings?.companyAddress ? `<div class="address-lbl">${escapeHtml(settings.companyAddress)}</div>` : ""}
@@ -352,6 +353,7 @@ export async function printBillingToken(ticket: Ticket): Promise<void> {
 <body>
   <div class="ticket">
     <div class="brand">
+      ${settings?.logoUrl ? `<img src="${settings.logoUrl}" alt="Company Logo" style="max-height: 40px; margin-bottom: 5px; object-fit: contain;" />` : ""}
       <p class="name">${settings?.companyName ? escapeHtml(settings.companyName) : "YARDFLOW MANAGER"}</p>
       ${settings?.terminalName ? `<div class="terminal-lbl">${escapeHtml(settings.terminalName)}</div>` : ""}
       ${settings?.companyAddress ? `<div class="address-lbl">${escapeHtml(settings.companyAddress)}</div>` : ""}
@@ -572,6 +574,7 @@ export async function printLoadingToken(ticket: Ticket): Promise<void> {
 <body>
   <div class="ticket">
     <div class="brand">
+      ${settings?.logoUrl ? `<img src="${settings.logoUrl}" alt="Company Logo" style="max-height: 40px; margin-bottom: 5px; object-fit: contain;" />` : ""}
       <p class="name">${settings?.companyName ? escapeHtml(settings.companyName) : "YARDFLOW MANAGER"}</p>
       ${settings?.terminalName ? `<div class="terminal-lbl">${escapeHtml(settings.terminalName)}</div>` : ""}
       ${settings?.companyAddress ? `<div class="address-lbl">${escapeHtml(settings.companyAddress)}</div>` : ""}

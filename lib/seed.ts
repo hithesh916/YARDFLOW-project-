@@ -39,6 +39,7 @@ export function buildSeed(): Ledger {
         onboardedDate: "2026-03-15",
         expiryDate: "2027-03-15",
         seats: 15,
+        modules: ["dashboard", "entry", "billing", "loading", "exit", "reports"],
       },
       {
         id: "ten-2",
@@ -50,6 +51,7 @@ export function buildSeed(): Ledger {
         onboardedDate: "2026-05-10",
         expiryDate: "2026-11-10",
         seats: 8,
+        modules: ["dashboard", "entry", "loading", "exit"],
       },
       {
         id: "ten-3",
@@ -61,6 +63,7 @@ export function buildSeed(): Ledger {
         onboardedDate: "2025-06-01",
         expiryDate: "2026-06-01",
         seats: 3,
+        modules: ["dashboard", "entry", "exit"],
       },
     ],
     operators: [
