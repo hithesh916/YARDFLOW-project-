@@ -13,6 +13,7 @@ import type {
   Ledger,
   Ticket,
   YardState,
+  SystemSettings,
 } from "./types";
 
 const DATA_DIR = process.env.VERCEL
@@ -510,16 +511,14 @@ export async function reset(): Promise<YardState> {
   });
 }
 
-export function updateSettings(settings: {
-  terminalName: string;
-  maxActiveBays: number;
-  timezone: string;
-}): Promise<YardState> {
+export function updateSettings(settings: Partial<SystemSettings>): Promise<YardState> {
   return mutate((l) => {
     l.settings = {
-      terminalName: settings.terminalName.trim(),
-      maxActiveBays: Number(settings.maxActiveBays) || 20,
-      timezone: settings.timezone.trim(),
+      ...l.settings,
+      ...settings,
+      terminalName: settings.terminalName?.trim() || l.settings.terminalName,
+      maxActiveBays: Number(settings.maxActiveBays) || l.settings.maxActiveBays,
+      timezone: settings.timezone?.trim() || l.settings.timezone,
     };
   });
 }
@@ -530,6 +529,9 @@ export async function createTenant(input: {
   domain: string;
   plan: "Enterprise Plan" | "Professional Plan" | "Basic Plan";
   seats: number;
+  modules: string[];
+  adminUsername?: string;
+  adminPassword?: string;
 }): Promise<YardState> {
   return mutate((l, log) => {
     const tenantId = `ten-${Date.now()}`;
@@ -550,10 +552,36 @@ export async function createTenant(input: {
       onboardedDate: dateStr,
       expiryDate: expiryStr,
       seats: input.seats,
+      modules: input.modules,
     };
     l.tenants = l.tenants || [];
     l.tenants.push(newTenant);
+
+    if (input.adminUsername && input.adminPassword) {
+      l.operators = l.operators || [];
+      l.operators.push({
+        id: `op-${Date.now()}`,
+        name: "System Admin",
+        username: input.adminUsername.trim().toLowerCase(),
+        passcode: input.adminPassword,
+        role: "Administrator",
+        tenantId: tenantId,
+        isFirstLogin: true,
+      });
+    }
+
     log({ action: "entry", detail: `Onboarded SaaS client: ${input.name}` });
+  });
+}
+
+export async function updateTenantConfig(id: string, seats: number, modules: string[]): Promise<YardState> {
+  return mutate((l, log) => {
+    const t = l.tenants?.find((t) => t.id === id);
+    if (t) {
+      t.seats = seats;
+      t.modules = modules;
+      log({ action: "reset", detail: `Updated configuration for SaaS client: ${t.name}` });
+    }
   });
 }
 

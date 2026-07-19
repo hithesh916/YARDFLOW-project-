@@ -13,6 +13,8 @@ import {
   ShieldCheck,
   Download,
   Building,
+  CreditCard,
+  Briefcase
 } from "lucide-react";
 import { toast } from "sonner";
 import { Panel } from "@/components/panel";
@@ -38,214 +40,86 @@ const ROLES = [
   "Security Guard",
 ];
 
-const PAGES = [
-  { key: "/", label: "Dashboard", desc: "Main analytics" },
-  { key: "/entry", label: "Entry Gate", desc: "Vehicle registry and print" },
-  { key: "/loading", label: "Loading Approval", desc: "Cargo verification" },
-  { key: "/billing", label: "Billing Approval", desc: "Invoice matching" },
-  { key: "/exit", label: "Exit Gate", desc: "Final inspections" },
-  { key: "/admin", label: "Admin Console", desc: "System user creation" },
-];
-
 export default function AdminPage() {
   const operators = useStore((s) => s.operators);
   const permissions = useStore((s) => s.permissions);
   const settings = useStore((s) => s.settings);
   const tickets = useStore((s) => s.tickets);
   const tenants = useStore((s) => s.tenants);
+  const currentUser = useStore((s) => s.currentUser);
   const updateSettings = useStore((s) => s.updateSettings);
-  const reset = useStore((s) => s.reset);
 
   const createOperator = useStore((s) => s.createOperator);
   const deleteOperator = useStore((s) => s.deleteOperator);
-  const updatePermissions = useStore((s) => s.updatePermissions);
 
-  const [activeTab, setActiveTab] = useState<"company" | "directory" | "grid" | "reports" | "receipt">("company");
+  // We find the current tenant (or fallback to the first one for the local demo)
+  const currentTenant = currentUser?.tenantId 
+    ? tenants.find(t => t.id === currentUser.tenantId) 
+    : tenants[0];
+
+  const [activeTab, setActiveTab] = useState<"company" | "users" | "modules" | "license" | "reports">("company");
 
   // Terminal Settings
-  const [terminalName, setTerminalName] = useState(settings?.terminalName || "");
-  const [maxActiveBays, setMaxActiveBays] = useState(settings?.maxActiveBays || 20);
-  const [timezone, setTimezone] = useState(settings?.timezone || "");
   const [companyName, setCompanyName] = useState(settings?.companyName || "");
   const [companyAddress, setCompanyAddress] = useState(settings?.companyAddress || "");
   const [companyContact, setCompanyContact] = useState(settings?.companyContact || "");
-  const [companyEmail, setCompanyEmail] = useState(settings?.companyEmail || "");
-  const [companyGst, setCompanyGst] = useState(settings?.companyGst || "");
+  const [logoUrl, setLogoUrl] = useState(settings?.logoUrl || "");
   const [busy, setBusy] = useState(false);
 
-  // New Operator Form
+  // User Management
   const [opName, setOpName] = useState("");
   const [opUsername, setOpUsername] = useState("");
   const [opPasscode, setOpPasscode] = useState("");
   const [opRole, setOpRole] = useState("Gate Operator");
 
-  function downloadOperatorsCsv() {
-    const headers = ["ID", "Name", "Username ID", "Passcode PIN", "Role"];
-    const rows = operators.map(op => [
-      op.id,
-      op.name,
-      op.username,
-      op.passcode,
-      op.role
-    ]);
-    const csvContent = [headers.join(","), ...rows.map(r => r.map(val => `"${String(val).replace(/"/g, '""')}"`).join(","))].join("\n");
-    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.setAttribute("href", url);
-    link.setAttribute("download", `yardflow_operators_${new Date().toISOString().split("T")[0]}.csv`);
-    link.style.visibility = "hidden";
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    toast.success("Operators registry exported to CSV.");
-  }
+  // Module Customization
+  const [enableQrCode, setEnableQrCode] = useState(settings?.formCustomization?.enableQrCode ?? true);
+  const [boeLabel, setBoeLabel] = useState(settings?.formCustomization?.renameFields?.boe || "BOE Number");
+  const [remarksOptional, setRemarksOptional] = useState(settings?.formCustomization?.optionalFields?.includes("remarks") ?? true);
 
-  function triggerCsvDownload(filename: string, headers: string[], rows: any[][]) {
-    const csvContent = [
-      headers.join(","),
-      ...rows.map(r => r.map(val => `"${String(val ?? "").replace(/"/g, '""')}"`).join(","))
-    ].join("\n");
-    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.setAttribute("href", url);
-    link.setAttribute("download", filename);
-    link.style.visibility = "hidden";
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  }
-
-  function exportEntrySheet() {
-    const headers = ["Ticket ID", "Token Number", "Vehicle Number", "BOE Number", "Carrier Agent", "Remarks", "Entry Timestamp"];
-    const rows = tickets.map(t => [
-      t.id,
-      t.serial,
-      t.vehicle,
-      t.boe,
-      t.agent,
-      t.remarks || "",
-      t.entryTime
-    ]);
-    triggerCsvDownload(`yardflow_entry_gate_${new Date().toISOString().split("T")[0]}.csv`, headers, rows);
-    toast.success("Entry Gate data sheet downloaded.");
-  }
-
-  function exportBillingSheet() {
-    const billed = tickets.filter(t => t.invoice !== null || t.paymentStatus);
-    const headers = ["Ticket ID", "Token Number", "Vehicle Number", "Invoice Number", "BOE Number", "Payment Status", "Entry Timestamp"];
-    const rows = billed.map(t => [
-      t.id,
-      t.serial,
-      t.vehicle,
-      t.invoice || "N/A",
-      t.boe,
-      t.paymentStatus || "Waiting",
-      t.entryTime
-    ]);
-    triggerCsvDownload(`yardflow_billing_approval_${new Date().toISOString().split("T")[0]}.csv`, headers, rows);
-    toast.success("Billing Approval data sheet downloaded.");
-  }
-
-  function exportLoadingSheet() {
-    const loaded = tickets.filter(t => t.loadingEnd !== null);
-    const headers = ["Ticket ID", "Token Number", "Vehicle Number", "Assigned Bay", "Work Order / BOE", "Loading Completed Timestamp"];
-    const rows = loaded.map(t => [
-      t.id,
-      t.serial,
-      t.vehicle,
-      t.bay || "N/A",
-      t.boe,
-      t.loadingEnd
-    ]);
-    triggerCsvDownload(`yardflow_loading_approval_${new Date().toISOString().split("T")[0]}.csv`, headers, rows);
-    toast.success("Loading Approval data sheet downloaded.");
-  }
-
-  function exportExitSheet() {
-    const exited = tickets.filter(t => t.exitTime !== null);
-    const headers = ["Ticket ID", "Token Number", "Vehicle Number", "BOE / Work Order", "Carrier Agent", "Cargo Detail", "Exit Timestamp"];
-    const rows = exited.map(t => [
-      t.id,
-      t.serial,
-      t.vehicle,
-      t.boe,
-      t.agent || "N/A",
-      t.cargo || "N/A",
-      t.exitTime
-    ]);
-    triggerCsvDownload(`yardflow_exit_gate_${new Date().toISOString().split("T")[0]}.csv`, headers, rows);
-    toast.success("Exit Gate data sheet downloaded.");
-  }
-
-  function exportTrafficSheet() {
-    const headers = [
-      "Ticket ID",
-      "Token Number",
-      "Vehicle Number",
-      "BOE / Work Order",
-      "Carrier Agent",
-      "Cargo Detail",
-      "Status",
-      "Entry Timestamp",
-      "Exit Timestamp",
-      "Duration in Yard"
-    ];
-    const rows = tickets.map(t => {
-      const duration = t.exitTime 
-        ? durationBetween(t.entryTime, t.exitTime)
-        : durationBetween(t.entryTime, new Date().toISOString()) + " (Active)";
-      return [
-        t.id,
-        t.serial,
-        t.vehicle,
-        t.boe,
-        t.agent || "N/A",
-        t.cargo || "N/A",
-        t.status.toUpperCase(),
-        t.entryTime,
-        t.exitTime || "Still in Yard",
-        duration
-      ];
-    });
-    triggerCsvDownload(`yardflow_traffic_registry_${new Date().toISOString().split("T")[0]}.csv`, headers, rows);
-    toast.success("Vehicle In/Out traffic data sheet downloaded.");
-  }
+  // Reports
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
+  const [repModules, setRepModules] = useState<string[]>(["Entry", "Billing", "Loading", "Exit"]);
 
   useEffect(() => {
     if (settings) {
-      setTerminalName(settings.terminalName);
-      setMaxActiveBays(settings.maxActiveBays);
-      setTimezone(settings.timezone);
       setCompanyName(settings.companyName || "");
       setCompanyAddress(settings.companyAddress || "");
       setCompanyContact(settings.companyContact || "");
-      setCompanyEmail(settings.companyEmail || "");
-      setCompanyGst(settings.companyGst || "");
+      setLogoUrl(settings.logoUrl || "");
+      setEnableQrCode(settings.formCustomization?.enableQrCode ?? true);
+      setBoeLabel(settings.formCustomization?.renameFields?.boe || "BOE Number");
+      setRemarksOptional(settings.formCustomization?.optionalFields?.includes("remarks") ?? true);
     }
   }, [settings]);
 
-  async function handleSaveSettings() {
-    if (!terminalName.trim()) {
-      toast.error("Please enter a terminal name.");
-      return;
-    }
+  async function handleSaveCompany() {
     setBusy(true);
     const ok = await updateSettings({
-      terminalName: terminalName.trim(),
-      maxActiveBays: Number(maxActiveBays) || 20,
-      timezone: timezone.trim() || "Asia/Kolkata",
       companyName: companyName.trim(),
       companyAddress: companyAddress.trim(),
       companyContact: companyContact.trim(),
-      companyEmail: companyEmail.trim(),
-      companyGst: companyGst.trim(),
+      logoUrl: logoUrl.trim(),
     });
     setBusy(false);
-    if (ok) {
-      toast.success("Settings saved successfully.");
-    }
+    if (ok) toast.success("Company Information saved.");
+  }
+
+  async function handleSaveModules() {
+    setBusy(true);
+    const optionalFields = remarksOptional ? ["remarks"] : [];
+    const renameFields = { boe: boeLabel.trim() || "BOE Number" };
+    
+    const ok = await updateSettings({
+      formCustomization: {
+        enableQrCode,
+        renameFields,
+        optionalFields
+      }
+    });
+    setBusy(false);
+    if (ok) toast.success("Module Configuration saved.");
   }
 
   async function handleAddOperator(e: React.FormEvent) {
@@ -266,683 +140,315 @@ export default function AdminPage() {
       setOpName("");
       setOpUsername("");
       setOpPasscode("");
-      toast.success("Operator registered successfully.");
+      toast.success("User registered successfully.");
     }
   }
 
-  async function handleDeleteOperator(id: string) {
-    const ok = await deleteOperator(id);
-    if (ok) {
-      toast.success("Operator deleted.");
-    }
+  function toggleReportModule(mod: string) {
+    setRepModules(prev => 
+      prev.includes(mod) ? prev.filter(m => m !== mod) : [...prev, mod]
+    );
   }
 
-  async function togglePermission(role: string, path: string) {
-    const perm = permissions.find((p) => p.role === role);
-    let allowedPaths = perm ? [...perm.allowedPaths] : [];
-
-    // Dashboard path toggling also binds reports
-    const extraPaths = path === "/" ? ["/reports"] : [];
-
-    if (allowedPaths.includes(path)) {
-      // Toggle OFF
-      allowedPaths = allowedPaths.filter((p) => p !== path && !extraPaths.includes(p));
-    } else {
-      // Toggle ON
-      allowedPaths.push(path);
-      extraPaths.forEach((p) => {
-        if (!allowedPaths.includes(p)) allowedPaths.push(p);
-      });
+  function handleGenerateReport() {
+    if (repModules.length === 0) {
+      toast.error("Please select at least one module for the report.");
+      return;
+    }
+    
+    let filtered = tickets;
+    if (startDate) {
+      const start = new Date(startDate).getTime();
+      filtered = filtered.filter(t => new Date(t.entryTime).getTime() >= start);
+    }
+    if (endDate) {
+      const end = new Date(endDate).getTime();
+      filtered = filtered.filter(t => new Date(t.entryTime).getTime() <= end + 86400000);
     }
 
-    await updatePermissions(role, allowedPaths);
+    const headers = ["Ticket ID", "Vehicle", "Entry Time", "Status"];
+    if (repModules.includes("Entry")) headers.push("Agent", "Cargo");
+    if (repModules.includes("Billing")) headers.push("Invoice", "Payment");
+    if (repModules.includes("Loading")) headers.push("Bay", "Loading End");
+    if (repModules.includes("Exit")) headers.push("Exit Time");
+
+    const rows = filtered.map(t => {
+      const row = [t.id, t.vehicle, t.entryTime, t.status];
+      if (repModules.includes("Entry")) row.push(t.agent, t.cargo);
+      if (repModules.includes("Billing")) row.push(t.invoice || "", t.paymentStatus || "");
+      if (repModules.includes("Loading")) row.push(t.bay, t.loadingEnd || "");
+      if (repModules.includes("Exit")) row.push(t.exitTime || "");
+      return row;
+    });
+
+    const csvContent = [headers.join(","), ...rows.map(r => r.map(val => `"${String(val).replace(/"/g, '""')}"`).join(","))].join("\n");
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", `YARDFLOW_Report_${new Date().toISOString().split("T")[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    toast.success("Excel/CSV Report Generated successfully!");
   }
 
   return (
-    <div className="flex flex-col gap-6">
-      {/* Top Title Banner */}
+    <div className="flex flex-col gap-6 pb-12">
       <div>
-        <h2 className="text-2xl font-black text-slate-800">Admin Console</h2>
+        <h2 className="text-2xl font-black text-slate-800">Client Admin Dashboard</h2>
         <p className="text-xs text-slate-400">
-          Terminal administration desk. Add operators, configure station paths, and edit terminal details.
+          Manage your company settings, users, modules, and billing configurations.
         </p>
       </div>
 
-      {/* Tabs list matching screenshots */}
-      <div className="flex border-b border-slate-200 text-xs">
-        <button
-          onClick={() => setActiveTab("company")}
-          className={`flex items-center gap-2 py-3 px-4 font-bold border-b-2 transition-colors ${
-            activeTab === "company"
-              ? "border-blue-600 text-blue-600"
-              : "border-transparent text-slate-400 hover:text-slate-600"
-          }`}
-        >
-          <Building size={15} /> Company Information
-        </button>
-        <button
-          onClick={() => setActiveTab("directory")}
-          className={`flex items-center gap-2 py-3 px-4 font-bold border-b-2 transition-colors ${
-            activeTab === "directory"
-              ? "border-blue-600 text-blue-600"
-              : "border-transparent text-slate-400 hover:text-slate-600"
-          }`}
-        >
-          <Users size={15} /> Operator Directory
-        </button>
-        <button
-          onClick={() => setActiveTab("grid")}
-          className={`flex items-center gap-2 py-3 px-4 font-bold border-b-2 transition-colors ${
-            activeTab === "grid"
-              ? "border-blue-600 text-blue-600"
-              : "border-transparent text-slate-400 hover:text-slate-600"
-          }`}
-        >
-          <Grid size={15} /> Role Permissions Grid
-        </button>
-        <button
-          onClick={() => setActiveTab("reports")}
-          className={`flex items-center gap-2 py-3 px-4 font-bold border-b-2 transition-colors ${
-            activeTab === "reports"
-              ? "border-blue-600 text-blue-600"
-              : "border-transparent text-slate-400 hover:text-slate-600"
-          }`}
-        >
-          <Settings size={15} /> Token Registry &amp; Report Gen
-        </button>
-        <button
-          onClick={() => setActiveTab("receipt")}
-          className={`flex items-center gap-2 py-3 px-4 font-bold border-b-2 transition-colors ${
-            activeTab === "receipt"
-              ? "border-blue-600 text-blue-600"
-              : "border-transparent text-slate-400 hover:text-slate-600"
-          }`}
-        >
-          <Receipt size={15} /> Receipt Config
-        </button>
+      <div className="flex border-b border-slate-200 text-xs overflow-x-auto">
+        {[
+          { id: "company", icon: Building, label: "Company Information" },
+          { id: "users", icon: Users, label: "User Management" },
+          { id: "modules", icon: Settings, label: "Module Customization" },
+          { id: "license", icon: CreditCard, label: "License Info" },
+          { id: "reports", icon: Download, label: "Reports" }
+        ].map(tab => (
+          <button
+            key={tab.id}
+            onClick={() => setActiveTab(tab.id as any)}
+            className={`flex items-center gap-2 py-3 px-4 font-bold border-b-2 transition-colors whitespace-nowrap ${
+              activeTab === tab.id
+                ? "border-blue-600 text-blue-600"
+                : "border-transparent text-slate-400 hover:text-slate-600"
+            }`}
+          >
+            <tab.icon size={15} /> {tab.label}
+          </button>
+        ))}
       </div>
 
-      {/* Company Information Tab */}
       {activeTab === "company" && (
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-[2fr_1fr]">
-          <Panel className="p-8 bg-white shadow-sm">
-            <h3 className="mb-1 text-base font-extrabold text-slate-800 flex items-center gap-2">
-              <Building size={18} className="text-blue-600" />
-              Company Details &amp; Settings
-            </h3>
-            <p className="mb-6 text-xs text-slate-400">
-              Manage client company profile details and main terminal configurations.
-            </p>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-              <div>
-                <label className="mb-1 block text-xs font-bold text-slate-600">COMPANY NAME</label>
-                <input
-                  value={companyName}
-                  onChange={(e) => setCompanyName(e.target.value)}
-                  placeholder="e.g. Acme Logistics Corp"
-                  className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-2 text-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
-                />
-              </div>
-              <div>
-                <label className="mb-1 block text-xs font-bold text-slate-600">GST / TAX ID</label>
-                <input
-                  value={companyGst}
-                  onChange={(e) => setCompanyGst(e.target.value)}
-                  placeholder="e.g. 29GGGGG1314R9Z6"
-                  className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-2 text-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
-                />
-              </div>
-              <div className="md:col-span-2">
-                <label className="mb-1 block text-xs font-bold text-slate-600">COMPANY ADDRESS</label>
-                <textarea
-                  value={companyAddress}
-                  onChange={(e) => setCompanyAddress(e.target.value)}
-                  placeholder="e.g. 45 Main St, Industrial Zone"
-                  className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-2 text-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100 min-h-16 resize-y"
-                />
-              </div>
-              <div>
-                <label className="mb-1 block text-xs font-bold text-slate-600">CONTACT NUMBER</label>
-                <input
-                  value={companyContact}
-                  onChange={(e) => setCompanyContact(e.target.value)}
-                  placeholder="e.g. +91 98765 43210"
-                  className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-2 text-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
-                />
-              </div>
-              <div>
-                <label className="mb-1 block text-xs font-bold text-slate-600">EMAIL ADDRESS</label>
-                <input
-                  type="email"
-                  value={companyEmail}
-                  onChange={(e) => setCompanyEmail(e.target.value)}
-                  placeholder="e.g. admin@acmelogistics.com"
-                  className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-2 text-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
-                />
-              </div>
+        <Panel className="p-8 bg-white shadow-sm max-w-3xl">
+          <h3 className="mb-6 text-base font-extrabold text-slate-800">Update Company Details</h3>
+          <div className="flex flex-col gap-5">
+            <div>
+              <label className="mb-1 block text-xs font-bold text-slate-600">COMPANY NAME</label>
+              <input value={companyName} onChange={e => setCompanyName(e.target.value)} className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-2 text-sm" />
             </div>
-
-            <div className="my-6 border-t border-slate-100" />
-
-            <h4 className="mb-4 text-xs font-black tracking-wider text-slate-400 uppercase">TERMINAL CONFIGURATIONS</h4>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-              <div>
-                <label className="mb-1 block text-xs font-bold text-slate-600">TERMINAL NAME</label>
-                <input
-                  value={terminalName}
-                  onChange={(e) => setTerminalName(e.target.value)}
-                  placeholder="e.g. Gate Terminal A"
-                  className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-2 text-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
-                />
-              </div>
-              <div>
-                <label className="mb-1 block text-xs font-bold text-slate-600">MAX ACTIVE BAYS</label>
-                <input
-                  type="number"
-                  value={maxActiveBays}
-                  onChange={(e) => setMaxActiveBays(Number(e.target.value))}
-                  placeholder="20"
-                  className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-2 text-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
-                />
-              </div>
-              <div>
-                <label className="mb-1 block text-xs font-bold text-slate-600">TIMEZONE</label>
-                <select
-                  value={timezone}
-                  onChange={(e) => setTimezone(e.target.value)}
-                  className="w-full rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
-                >
-                  <option value="Asia/Kolkata">Asia/Kolkata (IST)</option>
-                  <option value="UTC">UTC</option>
-                  <option value="America/New_York">America/New_York (EST)</option>
-                  <option value="Europe/London">Europe/London (GMT)</option>
-                </select>
-              </div>
-            </div>
-
-            <div className="mt-8 flex justify-end">
-              <button
-                onClick={handleSaveSettings}
-                disabled={busy}
-                className="rounded-lg bg-blue-600 px-6 py-2.5 text-xs font-bold text-white hover:bg-blue-700 shadow-sm"
-              >
-                Save Configurations
-              </button>
-            </div>
-          </Panel>
-
-          <div className="flex flex-col gap-6">
-            <Panel className="p-6 bg-slate-900 text-white">
-              <h4 className="text-[11px] font-black tracking-wider uppercase text-amber-500 mb-4 border-l-2 border-amber-500 pl-3">
-                SYSTEM INTEGRITY INFO
-              </h4>
-              <div className="flex flex-col gap-4 text-xs text-slate-300">
-                <p>
-                  Company profile settings are printed as standard header contents on Entry, Billing, and Loading tickets.
-                </p>
-                <p>
-                  Changing the Timezone will adjust the automatic daily midnight reset schedule dynamically.
-                </p>
-              </div>
-            </Panel>
-            
-            <Panel className="p-6 bg-white shadow-sm">
-              <h4 className="text-[11px] font-black tracking-wider uppercase text-slate-400 mb-3">
-                DATABASE UTILITIES
-              </h4>
-              <p className="text-[11px] text-slate-400 mb-4">
-                Danger zone. Clear operations history manually if needed.
-              </p>
-              <Dialog>
-                <DialogTrigger
-                  render={
-                    <button className="flex w-full items-center justify-center gap-1.5 rounded-lg border-2 border-red-100 bg-white px-4 py-2.5 text-xs font-bold text-red-600 transition-all hover:bg-red-50 active:scale-[0.98]">
-                      <RotateCcw size={13} /> Reset Yard Operations
-                    </button>
+            <div>
+              <label className="mb-1 block text-xs font-bold text-slate-600">COMPANY LOGO (UPLOAD FILE)</label>
+              <input
+                type="file"
+                accept="image/*"
+                onChange={e => {
+                  const file = e.target.files?.[0];
+                  if (file) {
+                    const reader = new FileReader();
+                    reader.onloadend = () => {
+                      setLogoUrl(reader.result as string);
+                    };
+                    reader.readAsDataURL(file);
                   }
-                />
-                <DialogContent className="max-w-[400px] p-6 bg-white rounded-xl shadow-xl">
-                  <DialogHeader>
-                    <DialogTitle className="text-base font-extrabold text-slate-900">
-                      Are you absolutely sure?
-                    </DialogTitle>
-                    <DialogDescription className="text-xs text-slate-500 mt-2">
-                      This action will wipe all active tokens, pending queues, logs, and reset current serial counts to 0. Settings and user logins will remain intact.
-                    </DialogDescription>
-                  </DialogHeader>
-                  <DialogFooter className="mt-6 flex justify-end gap-3">
-                    <DialogClose
-                      render={
-                        <button className="rounded-lg bg-slate-100 px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-200">
-                          Cancel
-                        </button>
-                      }
-                    />
-                    <button
-                      onClick={async () => {
-                        await reset();
-                        toast.success("All operational yard data has been reset.");
-                      }}
-                      className="rounded-lg bg-red-600 px-4 py-2 text-xs font-bold text-white hover:bg-red-700"
-                    >
-                      Reset Data
-                    </button>
-                  </DialogFooter>
-                </DialogContent>
-              </Dialog>
-            </Panel>
-          </div>
-        </div>
-      )}
-
-      {/* Operator Directory Tab */}
-      {activeTab === "directory" && (
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_380px]">
-          {/* Operator Registration Form */}
-          <div className="flex flex-col gap-6">
-            <Panel className="p-8 bg-white shadow-sm">
-              <h3 className="mb-1 text-base font-extrabold text-slate-800 flex items-center gap-2">
-                <Plus size={18} className="text-blue-600" />
-                Register Operator Account
-              </h3>
-              <p className="mb-6 text-xs text-slate-400">
-                Add active terminal operators to the YARDFLOW network.
-              </p>
-
-              <form onSubmit={handleAddOperator} className="flex flex-col gap-4">
-                <div>
-                  <label className="mb-1 block text-xs font-bold text-slate-600">DISPLAY NAME</label>
-                  <input
-                    value={opName}
-                    onChange={(e) => setOpName(e.target.value)}
-                    placeholder="e.g. Richard Hendricks"
-                    className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-2 text-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
-                  />
-                </div>
-                <div>
-                  <label className="mb-1 block text-xs font-bold text-slate-600">USERNAME (OPERATOR ID)</label>
-                  <input
-                    value={opUsername}
-                    onChange={(e) => setOpUsername(e.target.value)}
-                    placeholder="e.g. richard"
-                    className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-2 text-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100 font-mono"
-                  />
-                </div>
-                <div>
-                  <label className="mb-1 block text-xs font-bold text-slate-600">PASSCODE / PIN</label>
-                  <input
-                    type="password"
-                    value={opPasscode}
-                    onChange={(e) => setOpPasscode(e.target.value)}
-                    placeholder="e.g. 12345"
-                    className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-2 text-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100 font-mono"
-                  />
-                </div>
-                <div>
-                  <label className="mb-1 block text-xs font-bold text-slate-600">OPERATOR ROLE</label>
-                  <select
-                    value={opRole}
-                    onChange={(e) => setOpRole(e.target.value)}
-                    className="w-full rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
-                  >
-                    {ROLES.map((r) => (
-                      <option key={r} value={r}>
-                        {r}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                {operators.length >= (tenants?.[0]?.seats || 5) && (
-                  <div className="rounded-lg bg-amber-50 border border-amber-200 p-3 text-xs text-amber-700 font-semibold mb-2 leading-relaxed">
-                    ⚠️ Seat limit reached ({tenants?.[0]?.seats || 5}). Upgrade your client license via Super-Admin Hub to register more operators.
-                  </div>
-                )}
-                <div className="mt-2">
-                  <button
-                    type="submit"
-                    disabled={busy || operators.length >= (tenants?.[0]?.seats || 5)}
-                    className="rounded-lg bg-blue-600 px-6 py-2.5 text-xs font-bold text-white hover:bg-blue-700 shadow-sm disabled:bg-slate-200 disabled:text-slate-400 disabled:cursor-not-allowed"
-                  >
-                    Register Account
-                  </button>
-                </div>
-              </form>
-            </Panel>
-          </div>
-
-          {/* Operator Directory List */}
-          <Panel className="p-6 bg-white shadow-sm h-fit">
-            <div className="flex items-center justify-between mb-1.5">
-              <h3 className="text-[13px] font-black uppercase tracking-wider text-slate-400">
-                OPERATOR REGISTRY
-              </h3>
-              <button
-                onClick={downloadOperatorsCsv}
-                className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-[10px] font-extrabold text-slate-600 hover:bg-slate-50 transition-colors h-7"
-                title="Download CSV"
-              >
-                <Download size={12} /> Export CSV
+                }}
+                className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-2 text-sm"
+              />
+              {logoUrl && <img src={logoUrl} alt="Logo Preview" className="h-12 mt-2 object-contain" />}
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-bold text-slate-600">COMPANY ADDRESS</label>
+              <textarea value={companyAddress} onChange={e => setCompanyAddress(e.target.value)} className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-2 text-sm min-h-20" />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-bold text-slate-600">CONTACT DETAILS</label>
+              <input value={companyContact} onChange={e => setCompanyContact(e.target.value)} className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-2 text-sm" />
+            </div>
+            <div className="flex justify-end mt-4">
+              <button onClick={handleSaveCompany} disabled={busy} className="rounded-lg bg-blue-600 px-6 py-2.5 text-xs font-bold text-white hover:bg-blue-700">
+                Save Company Information
               </button>
             </div>
-            <p className="text-[11px] text-slate-400 mb-5">
-              Manage operator credentials and assigned job permissions.
-            </p>
-
-            <div className="flex flex-col gap-3">
-              {operators
-                .filter((op) => !["op-2", "op-3", "op-4", "op-5"].includes(op.id))
-                .map((op) => (
-                  <div
-                    key={op.id}
-                    className="flex items-center justify-between border-b border-slate-50 pb-3 last:border-0 last:pb-0"
-                  >
-                    <div>
-                      <h4 className="text-xs font-extrabold text-slate-800">{op.name}</h4>
-                      <div className="mt-1 flex flex-wrap gap-2 text-[10px] text-slate-400">
-                        <span className="font-mono text-blue-600 font-bold">{op.username}</span>
-                        <span>·</span>
-                        <span className="font-mono">{op.passcode}</span>
-                        <span>·</span>
-                        <span className="font-bold text-slate-500 uppercase">{op.role}</span>
-                      </div>
-                    </div>
-                    {/* Delete button (cannot delete the initial seed admin to prevent lockout) */}
-                    {op.username !== "admin" && (
-                      <button
-                        onClick={() => handleDeleteOperator(op.id)}
-                        className="rounded-lg border border-rose-100 p-2 text-rose-500 hover:bg-rose-50 transition-colors"
-                        title="Delete operator"
-                      >
-                        <Trash2 size={14} />
-                      </button>
-                    )}
-                  </div>
-                ))}
-            </div>
-          </Panel>
-        </div>
-      )}
-
-      {/* Role Permissions Grid Tab */}
-      {activeTab === "grid" && (
-        <Panel className="p-6 bg-white shadow-sm overflow-x-auto">
-          <div className="mb-6">
-            <h3 className="text-base font-extrabold text-slate-800 flex items-center gap-2">
-              <ShieldCheck size={18} className="text-blue-600" />
-              Permission Settings &amp; Access Matrix
-            </h3>
-            <p className="mt-1 text-xs text-slate-400">
-              Toggle screen access settings per role. Unauthorized pages will immediately be blocked and hidden from Sidebar menus.
-            </p>
           </div>
-
-          <table className="w-full text-left text-xs border-collapse">
-            <thead>
-              <tr className="bg-slate-50 text-[10px] font-black uppercase tracking-wider text-slate-400 border-b border-slate-100">
-                <th className="py-3 px-4">OPERATIONAL ROLE</th>
-                {PAGES.map((p) => (
-                  <th key={p.key} className="py-3 px-4">
-                    <p className="font-bold text-slate-700">{p.label}</p>
-                    <p className="font-normal text-[9px] text-slate-400 mt-0.5 leading-none">{p.desc}</p>
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100 font-bold">
-              {ROLES.map((role) => {
-                const perm = permissions.find((p) => p.role === role);
-                const allowedPaths = perm ? perm.allowedPaths : [];
-                return (
-                  <tr key={role} className="hover:bg-slate-50/30">
-                    <td className="py-4 px-4">
-                      <p className="text-slate-800 font-extrabold">{role}</p>
-                      <p className="text-[10px] text-slate-400 font-normal mt-0.5">
-                        {allowedPaths.filter((p) => p !== "/reports").length} of {PAGES.length} pages enabled
-                      </p>
-                    </td>
-                    {PAGES.map((p) => {
-                      const isEnabled = allowedPaths.includes(p.key);
-                      // Admin always has all permissions to avoid lockout
-                      const isDisabled = role === "Administrator";
-                      return (
-                        <td key={p.key} className="py-4 px-4">
-                          <label className="relative inline-flex items-center cursor-pointer">
-                            <input
-                              type="checkbox"
-                              checked={isEnabled}
-                              disabled={isDisabled}
-                              onChange={() => togglePermission(role, p.key)}
-                              className="sr-only peer"
-                            />
-                            <div className="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600 peer-disabled:opacity-50"></div>
-                          </label>
-                        </td>
-                      );
-                    })}
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
         </Panel>
       )}
 
-      {/* Registry & Settings Tab */}
-      {activeTab === "reports" && (
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-          {/* Terminal settings */}
-          <Panel className="p-6 bg-white shadow-sm">
-            <h3 className="mb-1 text-[15px] font-extrabold text-slate-800">
-              Terminal Configuration
-            </h3>
-            <p className="mb-5 text-xs text-slate-400">
-              Personalize settings for this browser terminal slot.
-            </p>
-
-            <div className="flex flex-col gap-4">
+      {activeTab === "users" && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <Panel className="p-8 bg-white shadow-sm h-fit">
+            <h3 className="mb-6 text-base font-extrabold text-slate-800">Create Users</h3>
+            <form onSubmit={handleAddOperator} className="flex flex-col gap-4">
               <div>
-                <label className="mb-1.5 block text-xs font-bold text-slate-700">
-                  Terminal Name
-                </label>
-                <input
-                  value={terminalName}
-                  onChange={(e) => setTerminalName(e.target.value)}
-                  maxLength={60}
-                  className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-2 text-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
-                />
+                <label className="mb-1 block text-xs font-bold text-slate-600">NAME</label>
+                <input value={opName} onChange={e => setOpName(e.target.value)} className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-2 text-sm" />
               </div>
-
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <div>
-                  <label className="mb-1.5 block text-xs font-bold text-slate-700">
-                    Active-bay Capacity
-                  </label>
-                  <input
-                    type="number"
-                    min={1}
-                    max={500}
-                    value={maxActiveBays}
-                    onChange={(e) => setMaxActiveBays(Number(e.target.value))}
-                    className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-2 text-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
-                  />
-                </div>
-
-                <div>
-                  <label className="mb-1.5 block text-xs font-bold text-slate-700">
-                    Operations Timezone
-                  </label>
-                  <input
-                    value={timezone}
-                    onChange={(e) => setTimezone(e.target.value)}
-                    maxLength={50}
-                    className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-2 text-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
-                  />
-                </div>
+              <div>
+                <label className="mb-1 block text-xs font-bold text-slate-600">USERNAME</label>
+                <input value={opUsername} onChange={e => setOpUsername(e.target.value)} className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-2 text-sm" />
               </div>
-
-              <div className="mt-2 border-t border-slate-100 pt-4">
-                <button
-                  onClick={handleSaveSettings}
-                  disabled={busy}
-                  className="rounded-lg bg-blue-600 px-5 py-2.5 text-xs font-bold text-white transition-colors hover:bg-blue-700"
-                >
-                  Save Settings
+              <div>
+                <label className="mb-1 block text-xs font-bold text-slate-600">PASSWORD</label>
+                <input type="password" value={opPasscode} onChange={e => setOpPasscode(e.target.value)} className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-2 text-sm" />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-bold text-slate-600">ASSIGN ROLE</label>
+                <select value={opRole} onChange={e => setOpRole(e.target.value)} className="w-full rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-sm">
+                  {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
+                </select>
+                <p className="text-[10px] text-slate-500 mt-2">
+                  Permissions automatically granted for {opRole}:
+                  <br />
+                  <span className="font-bold text-blue-600">
+                    {permissions.find(p => p.role === opRole)?.allowedPaths.join(", ") || "None"}
+                  </span>
+                </p>
+              </div>
+              {currentTenant && operators.length >= currentTenant.seats && (
+                <div className="text-xs text-red-500 font-bold mt-2">Seat limit reached ({currentTenant.seats}).</div>
+              )}
+              <div className="mt-2">
+                <button type="submit" disabled={busy || (currentTenant && operators.length >= currentTenant.seats) as boolean} className="rounded-lg bg-blue-600 px-6 py-2.5 text-xs font-bold text-white hover:bg-blue-700 disabled:opacity-50">
+                  Save User
                 </button>
               </div>
-            </div>
+            </form>
           </Panel>
 
-          {/* Database Actions */}
-          <Panel className="p-6 bg-white shadow-sm h-fit">
-            <h3 className="mb-1 text-[15px] font-extrabold text-slate-800">
-              Clear Yard Data
-            </h3>
-            <p className="mb-5 text-xs text-slate-400">
-              Wipe out transactional data, resetting all live logs to empty.
-            </p>
-            <div className="rounded-xl border border-rose-100 bg-rose-50/20 p-5">
-              <p className="text-xs text-slate-500 leading-relaxed mb-4">
-                Clearing will wipe out active ticket registries and reset daily counters.
-              </p>
-              <Dialog>
-                <DialogTrigger
-                  render={
-                    <button className="flex items-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-xs font-bold text-white hover:bg-red-700">
-                      <RotateCcw size={14} /> Reset Yard Data
+          <Panel className="p-8 bg-white shadow-sm h-fit">
+            <h3 className="mb-6 text-base font-extrabold text-slate-800">Current Users ({operators.length} / {currentTenant?.seats || '∞'})</h3>
+            <div className="flex flex-col gap-3">
+              {operators.map((op) => (
+                <div key={op.id} className="flex items-center justify-between border-b border-slate-100 pb-3 last:border-0 last:pb-0">
+                  <div>
+                    <h4 className="text-sm font-bold text-slate-800">{op.name}</h4>
+                    <p className="text-xs text-slate-500 font-mono mt-0.5">{op.username} • {op.role}</p>
+                  </div>
+                  {op.username !== "admin" && (
+                    <button onClick={() => deleteOperator(op.id)} className="text-red-500 hover:bg-red-50 p-2 rounded-lg transition-colors">
+                      <Trash2 size={15} />
                     </button>
-                  }
-                />
-                <DialogContent>
-                  <DialogHeader>
-                    <DialogTitle>Clear all yard data?</DialogTitle>
-                    <DialogDescription>
-                      This erases the ledger and audit logs, returning to a clean state. This cannot be undone.
-                    </DialogDescription>
-                  </DialogHeader>
-                  <DialogFooter>
-                    <DialogClose
-                      render={
-                        <button className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50">
-                          Cancel
-                        </button>
-                      }
-                    />
-                    <DialogClose
-                      render={
-                        <button
-                          onClick={async () => {
-                            setBusy(true);
-                            await reset();
-                            setBusy(false);
-                          }}
-                          className="rounded-lg bg-red-600 px-4 py-2 text-sm font-bold text-white hover:bg-red-700"
-                        >
-                          Clear
-                        </button>
-                      }
-                    />
-                  </DialogFooter>
-                </DialogContent>
-              </Dialog>
-            </div>
-          </Panel>
-          
-          {/* Station spreadsheet downloads */}
-          <Panel className="p-6 bg-white shadow-sm lg:col-span-2">
-            <h3 className="mb-1 text-[15px] font-extrabold text-slate-800">
-              Download Checkpoint Station Sheets
-            </h3>
-            <p className="mb-6 text-xs text-slate-400">
-              Export isolated operational spreadsheets for individual checkpoint gates.
-            </p>
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-4">
-              {/* Entry Gate Card */}
-              <div className="rounded-xl border border-slate-100 p-4 bg-slate-50/20 flex flex-col justify-between h-36">
-                <div>
-                  <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">ENTRY GATE</p>
-                  <p className="text-xl font-black text-slate-800 mt-1">{tickets.length} Check-ins</p>
+                  )}
                 </div>
-                <button
-                  onClick={exportEntrySheet}
-                  className="w-full flex items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50 transition-colors h-9"
-                >
-                  <Download size={13} /> Entry Sheet
-                </button>
-              </div>
-
-              {/* Billing Card */}
-              <div className="rounded-xl border border-slate-100 p-4 bg-slate-50/20 flex flex-col justify-between h-36">
-                <div>
-                  <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">BILLING APPROVAL</p>
-                  <p className="text-xl font-black text-slate-800 mt-1">
-                    {tickets.filter(t => t.invoice !== null || t.paymentStatus).length} Invoices
-                  </p>
-                </div>
-                <button
-                  onClick={exportBillingSheet}
-                  className="w-full flex items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50 transition-colors h-9"
-                >
-                  <Download size={13} /> Billing Sheet
-                </button>
-              </div>
-
-              {/* Loading Card */}
-              <div className="rounded-xl border border-slate-100 p-4 bg-slate-50/20 flex flex-col justify-between h-36">
-                <div>
-                  <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">LOADING APPROVAL</p>
-                  <p className="text-xl font-black text-slate-800 mt-1">
-                    {tickets.filter(t => t.loadingEnd !== null).length} Dispatches
-                  </p>
-                </div>
-                <button
-                  onClick={exportLoadingSheet}
-                  className="w-full flex items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50 transition-colors h-9"
-                >
-                  <Download size={13} /> Loading Sheet
-                </button>
-              </div>
-
-              {/* Exit Gate Card */}
-              <div className="rounded-xl border border-slate-100 p-4 bg-slate-50/20 flex flex-col justify-between h-36">
-                <div>
-                  <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">EXIT GATE</p>
-                  <p className="text-xl font-black text-slate-800 mt-1">
-                    {tickets.filter(t => t.exitTime !== null).length} Clearances
-                  </p>
-                </div>
-                <button
-                  onClick={exportExitSheet}
-                  className="w-full flex items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50 transition-colors h-9"
-                >
-                  <Download size={13} /> Exit Sheet
-                </button>
-              </div>
-
-              {/* Traffic Card */}
-              <div className="rounded-xl border border-slate-100 p-4 bg-slate-50/20 flex flex-col justify-between h-36">
-                <div>
-                  <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">VEHICLE TRAFFIC</p>
-                  <p className="text-xl font-black text-slate-800 mt-1">
-                    {tickets.length} Registered
-                  </p>
-                </div>
-                <button
-                  onClick={exportTrafficSheet}
-                  className="w-full flex items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50 transition-colors h-9"
-                >
-                  <Download size={13} /> Traffic Sheet (In/Out)
-                </button>
-              </div>
+              ))}
             </div>
           </Panel>
         </div>
       )}
 
-      {/* Receipt Config Tab */}
-      {activeTab === "receipt" && (
-        <Panel className="p-16 text-center text-[13px] text-slate-400 bg-white shadow-sm">
-          No additional receipt configurations needed. Edit custom headers directly in settings.
+      {activeTab === "modules" && (
+        <Panel className="p-8 bg-white shadow-sm max-w-3xl">
+          <h3 className="mb-6 text-base font-extrabold text-slate-800">Module Customization</h3>
+          
+          <div className="flex flex-col gap-8">
+            <div>
+              <h4 className="text-sm font-bold text-slate-700 mb-3 border-b pb-2">Features</h4>
+              <label className="flex items-center gap-3 text-sm cursor-pointer">
+                <input type="checkbox" checked={enableQrCode} onChange={e => setEnableQrCode(e.target.checked)} className="w-4 h-4 text-blue-600 rounded border-slate-300" />
+                <span className="font-semibold text-slate-700">Enable QR Code Generation</span>
+              </label>
+              <p className="text-[11px] text-slate-400 mt-1 ml-7">Appends a scannable QR code to all generated tickets and receipts.</p>
+            </div>
+
+            <div>
+              <h4 className="text-sm font-bold text-slate-700 mb-3 border-b pb-2">Rename Fields</h4>
+              <div className="flex items-center justify-between bg-slate-50 p-4 rounded-lg border border-slate-100">
+                <div>
+                  <p className="text-xs font-bold text-slate-700">BOE Number</p>
+                  <p className="text-[10px] text-slate-400">Default tracking identifier</p>
+                </div>
+                <input value={boeLabel} onChange={e => setBoeLabel(e.target.value)} placeholder="e.g. Work Order, Shipping ID" className="w-48 rounded-lg border border-slate-200 px-3 py-1.5 text-xs outline-none" />
+              </div>
+            </div>
+
+            <div>
+              <h4 className="text-sm font-bold text-slate-700 mb-3 border-b pb-2">Mandatory / Optional Fields</h4>
+              <label className="flex items-center gap-3 text-sm cursor-pointer">
+                <input type="checkbox" checked={remarksOptional} onChange={e => setRemarksOptional(e.target.checked)} className="w-4 h-4 text-blue-600 rounded border-slate-300" />
+                <span className="font-semibold text-slate-700">Make "Remarks" field Optional</span>
+              </label>
+              <p className="text-[11px] text-slate-400 mt-1 ml-7">If unchecked, operators will be forced to enter remarks for every ticket.</p>
+            </div>
+
+            <div className="flex justify-end mt-4">
+              <button onClick={handleSaveModules} disabled={busy} className="rounded-lg bg-blue-600 px-6 py-2.5 text-xs font-bold text-white hover:bg-blue-700">
+                Save Configuration
+              </button>
+            </div>
+          </div>
+        </Panel>
+      )}
+
+      {activeTab === "license" && (
+        <Panel className="p-8 bg-white shadow-sm max-w-xl">
+          <h3 className="mb-6 text-base font-extrabold text-slate-800 flex items-center gap-2">
+            <Briefcase className="text-blue-600" size={20} />
+            License Information
+          </h3>
+          
+          {currentTenant ? (
+            <div className="flex flex-col gap-6">
+              <div className="bg-slate-50 border border-slate-100 p-5 rounded-xl text-center">
+                <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">Current Plan</p>
+                <p className="text-2xl font-black text-blue-600">{currentTenant.plan}</p>
+                <div className="mt-3 inline-flex items-center px-3 py-1 rounded-full bg-green-100 text-green-700 text-[10px] font-bold uppercase tracking-wide">
+                  {currentTenant.status}
+                </div>
+              </div>
+              
+              <div className="grid grid-cols-2 gap-4">
+                <div className="border border-slate-100 rounded-lg p-4">
+                  <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Expiry Date</p>
+                  <p className="text-sm font-bold text-slate-800">{new Date(currentTenant.expiryDate).toLocaleDateString(undefined, { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' })}</p>
+                </div>
+                <div className="border border-slate-100 rounded-lg p-4">
+                  <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Operator Seats</p>
+                  <p className="text-sm font-bold text-slate-800">{operators.length} used of {currentTenant.seats} allowed</p>
+                </div>
+                <div className="border border-slate-100 rounded-lg p-4 col-span-2 bg-slate-50">
+                  <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">License Key</p>
+                  <p className="text-sm font-mono font-bold text-slate-800 tracking-wider">{currentTenant.licenseKey}</p>
+                </div>
+              </div>
+              
+              <p className="text-xs text-slate-400 text-center mt-4">
+                To upgrade your plan, increase seats, or extend expiry, please contact the Super Admin.
+              </p>
+            </div>
+          ) : (
+            <p className="text-sm text-slate-500">No active license found.</p>
+          )}
+        </Panel>
+      )}
+
+      {activeTab === "reports" && (
+        <Panel className="p-8 bg-white shadow-sm max-w-3xl">
+          <h3 className="mb-6 text-base font-extrabold text-slate-800">Generate Custom Reports</h3>
+          
+          <div className="flex flex-col gap-8">
+            <div className="grid grid-cols-2 gap-6">
+              <div>
+                <label className="mb-1 block text-xs font-bold text-slate-600">START DATE (OPTIONAL)</label>
+                <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-2 text-sm" />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-bold text-slate-600">END DATE (OPTIONAL)</label>
+                <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-2 text-sm" />
+              </div>
+            </div>
+
+            <div>
+              <label className="mb-3 block text-xs font-bold text-slate-600 uppercase">SELECT MODULES TO INCLUDE</label>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                {["Entry", "Billing", "Loading", "Exit"].map(mod => (
+                  <label key={mod} className={`flex items-center justify-center p-3 rounded-lg border cursor-pointer transition-colors ${repModules.includes(mod) ? "bg-blue-50 border-blue-200 text-blue-700" : "bg-slate-50 border-slate-200 text-slate-600"}`}>
+                    <input type="checkbox" checked={repModules.includes(mod)} onChange={() => toggleReportModule(mod)} className="sr-only" />
+                    <span className="text-xs font-bold">{mod} Data</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex justify-end border-t pt-6 mt-2">
+              <button onClick={handleGenerateReport} className="flex items-center gap-2 rounded-lg bg-emerald-600 px-6 py-3 text-sm font-bold text-white hover:bg-emerald-700 transition-colors shadow-sm">
+                <Download size={16} /> Download Excel / CSV
+              </button>
+            </div>
+          </div>
         </Panel>
       )}
     </div>

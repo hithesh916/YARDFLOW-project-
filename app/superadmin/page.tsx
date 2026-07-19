@@ -16,6 +16,8 @@ import {
   Briefcase,
   AlertTriangle,
   Download,
+  Settings,
+  CheckCircle2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Panel } from "@/components/panel";
@@ -39,6 +41,7 @@ export default function SuperAdminHub() {
   const createTenant = useStore((s) => s.createTenant);
   const extendTenant = useStore((s) => s.extendTenant);
   const deleteTenant = useStore((s) => s.deleteTenant);
+  const updateTenantConfig = useStore((s) => s.updateTenantConfig);
 
   const [activeTab, setActiveTab] = useState<"tenants" | "registry" | "backend">("tenants");
   const [search, setSearch] = useState("");
@@ -50,8 +53,25 @@ export default function SuperAdminHub() {
   const [domain, setDomain] = useState("");
   const [plan, setPlan] = useState<"Enterprise Plan" | "Professional Plan" | "Basic Plan">("Enterprise Plan");
   const [seats, setSeats] = useState(5);
+  const [modules, setModules] = useState<string[]>(["dashboard", "entry", "billing", "loading", "exit", "reports"]);
+  const [adminUsername, setAdminUsername] = useState("");
+  const [adminPassword, setAdminPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [openOnboard, setOpenOnboard] = useState(false);
+  const [successCreds, setSuccessCreds] = useState<{username: string, password: string, domain: string} | null>(null);
+
+  const [editTenantId, setEditTenantId] = useState<string | null>(null);
+  const [editSeats, setEditSeats] = useState(5);
+  const [editModules, setEditModules] = useState<string[]>([]);
+
+  const AVAILABLE_MODULES = [
+    { id: "dashboard", label: "Dashboard" },
+    { id: "entry", label: "Entry Gate" },
+    { id: "billing", label: "Billing" },
+    { id: "loading", label: "Loading" },
+    { id: "exit", label: "Exit Gate" },
+    { id: "reports", label: "Reports" },
+  ];
 
   function downloadTenantsCsv() {
     const headers = ["ID", "Company Name", "Domain", "Plan", "Status", "License Key", "Expiry Date", "Onboarded Date", "Seats"];
@@ -81,8 +101,8 @@ export default function SuperAdminHub() {
 
   async function handleOnboard(e: React.FormEvent) {
     e.preventDefault();
-    if (!name.trim() || !domain.trim()) {
-      toast.error("Please fill in company name and domain.");
+    if (!name.trim() || !domain.trim() || !adminUsername.trim() || !adminPassword.trim()) {
+      toast.error("Please fill in company name, domain, and admin credentials.");
       return;
     }
     setBusy(true);
@@ -91,14 +111,30 @@ export default function SuperAdminHub() {
       domain: domain.trim(),
       plan,
       seats: Number(seats) || 5,
+      modules,
+      adminUsername: adminUsername.trim(),
+      adminPassword: adminPassword.trim(),
     });
     setBusy(false);
     if (ok) {
+      setSuccessCreds({ username: adminUsername.trim(), password: adminPassword.trim(), domain: domain.trim() });
       setName("");
       setDomain("");
       setSeats(5);
+      setModules(["dashboard", "entry", "billing", "loading", "exit", "reports"]);
+      setAdminUsername("");
+      setAdminPassword("");
       setOpenOnboard(false);
     }
+  }
+
+  async function handleEditSave(e: React.FormEvent) {
+    e.preventDefault();
+    if (!editTenantId) return;
+    setBusy(true);
+    const ok = await updateTenantConfig(editTenantId, editSeats, editModules);
+    setBusy(false);
+    if (ok) setEditTenantId(null);
   }
 
   async function handleExtend(id: string) {
@@ -208,6 +244,46 @@ export default function SuperAdminHub() {
                   />
                 </div>
               </div>
+              <div>
+                <label className="mb-2 block text-xs font-bold text-slate-600">Enabled Modules</label>
+                <div className="grid grid-cols-3 gap-2">
+                  {AVAILABLE_MODULES.map((mod) => (
+                    <label key={mod.id} className="flex items-center gap-2 rounded border border-slate-200 bg-slate-50 p-2 cursor-pointer hover:bg-slate-100">
+                      <input 
+                        type="checkbox" 
+                        checked={modules.includes(mod.id)}
+                        onChange={(e) => {
+                          if (e.target.checked) setModules([...modules, mod.id]);
+                          else setModules(modules.filter((m) => m !== mod.id));
+                        }}
+                        className="rounded border-slate-300 text-blue-600"
+                      />
+                      <span className="text-xs font-semibold text-slate-700">{mod.label}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="mb-1 block text-xs font-bold text-slate-600">Admin Username</label>
+                  <input
+                    value={adminUsername}
+                    onChange={(e) => setAdminUsername(e.target.value)}
+                    placeholder="e.g. admin"
+                    className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-2 text-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-bold text-slate-600">Admin Password</label>
+                  <input
+                    value={adminPassword}
+                    onChange={(e) => setAdminPassword(e.target.value)}
+                    type="password"
+                    placeholder="••••••••"
+                    className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-2 text-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
+                  />
+                </div>
+              </div>
               <DialogFooter className="mt-4">
                 <DialogClose
                   render={
@@ -218,6 +294,97 @@ export default function SuperAdminHub() {
                 />
                 <button type="submit" disabled={busy} className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-bold text-white hover:bg-blue-700 disabled:opacity-50">
                   {busy ? "Onboarding..." : "Confirm Onboard"}
+                </button>
+              </DialogFooter>
+            </form>
+          </DialogContent>
+        </Dialog>
+
+        {/* Success Credentials Modal */}
+        <Dialog open={!!successCreds} onOpenChange={(o) => !o && setSuccessCreds(null)}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2 text-emerald-600">
+                <CheckCircle2 size={20} /> Client Successfully Onboarded
+              </DialogTitle>
+              <DialogDescription>
+                The new tenant environment is ready. Share these initial administrator credentials securely with the client.
+              </DialogDescription>
+            </DialogHeader>
+            {successCreds && (
+              <div className="rounded-xl border border-emerald-100 bg-emerald-50/50 p-5 mt-2 flex flex-col gap-3">
+                <div className="flex justify-between border-b border-emerald-100 pb-2">
+                  <span className="text-xs font-bold text-slate-500 uppercase">Login URL</span>
+                  <span className="text-sm font-extrabold text-slate-800">https://{successCreds.domain}</span>
+                </div>
+                <div className="flex justify-between border-b border-emerald-100 pb-2">
+                  <span className="text-xs font-bold text-slate-500 uppercase">Username</span>
+                  <span className="text-sm font-extrabold text-slate-800">{successCreds.username}</span>
+                </div>
+                <div className="flex justify-between pb-1">
+                  <span className="text-xs font-bold text-slate-500 uppercase">Password</span>
+                  <span className="text-sm font-extrabold text-slate-800 font-mono">{successCreds.password}</span>
+                </div>
+              </div>
+            )}
+            <DialogFooter className="mt-2">
+              <button onClick={() => setSuccessCreds(null)} className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-bold text-white hover:bg-emerald-700">
+                Done
+              </button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Edit Config Modal */}
+        <Dialog open={!!editTenantId} onOpenChange={(o) => !o && setEditTenantId(null)}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Edit Tenant Configuration</DialogTitle>
+              <DialogDescription>
+                Update operator seat limits and enable/disable modules.
+              </DialogDescription>
+            </DialogHeader>
+            <form onSubmit={handleEditSave} className="flex flex-col gap-4 py-2">
+              <div>
+                <label className="mb-2 block text-xs font-bold text-slate-600">Enabled Modules</label>
+                <div className="grid grid-cols-3 gap-2">
+                  {AVAILABLE_MODULES.map((mod) => (
+                    <label key={mod.id} className="flex items-center gap-2 rounded border border-slate-200 bg-slate-50 p-2 cursor-pointer hover:bg-slate-100">
+                      <input 
+                        type="checkbox" 
+                        checked={editModules.includes(mod.id)}
+                        onChange={(e) => {
+                          if (e.target.checked) setEditModules([...editModules, mod.id]);
+                          else setEditModules(editModules.filter((m) => m !== mod.id));
+                        }}
+                        className="rounded border-slate-300 text-blue-600"
+                      />
+                      <span className="text-xs font-semibold text-slate-700">{mod.label}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-bold text-slate-600">Operator Seat Cap</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={100}
+                  value={editSeats}
+                  onChange={(e) => setEditSeats(Number(e.target.value))}
+                  className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-2 text-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
+                />
+              </div>
+              <DialogFooter className="mt-4">
+                <DialogClose
+                  render={
+                    <button type="button" className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50">
+                      Cancel
+                    </button>
+                  }
+                />
+                <button type="submit" disabled={busy} className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-bold text-white hover:bg-blue-700 disabled:opacity-50">
+                  {busy ? "Saving..." : "Save Changes"}
                 </button>
               </DialogFooter>
             </form>
@@ -419,16 +586,26 @@ export default function SuperAdminHub() {
                         </div>
 
                         {/* License Extensions & Delete */}
-                        <div className="flex gap-2 w-full sm:w-auto">
+                        <div className="flex gap-2 w-full sm:w-auto flex-wrap">
+                          <button
+                            onClick={() => {
+                              setEditTenantId(t.id);
+                              setEditSeats(t.seats);
+                              setEditModules(t.modules || []);
+                            }}
+                            className="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50 transition-colors"
+                          >
+                            <Settings size={14} /> Edit Config
+                          </button>
                           <button
                             onClick={() => handleExtend(t.id)}
-                            className="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 rounded-lg border-2 border-slate-200 bg-white px-4 py-2.5 text-xs font-extrabold text-slate-600 hover:bg-slate-50 transition-colors"
+                            className="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 rounded-lg border-2 border-slate-200 bg-white px-3 py-2 text-xs font-extrabold text-slate-600 hover:bg-slate-50 transition-colors"
                           >
-                            Extend License
+                            Extend
                           </button>
                           <button
                             onClick={() => handleDelete(t.id)}
-                            className="rounded-lg border-2 border-rose-100 bg-white p-2.5 text-rose-500 hover:bg-rose-50 transition-colors"
+                            className="rounded-lg border-2 border-rose-100 bg-white p-2 text-rose-500 hover:bg-rose-50 transition-colors"
                             title="Delete Tenant"
                           >
                             <Trash2 size={16} />

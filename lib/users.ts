@@ -5,6 +5,7 @@ export interface OperatorUser {
   name: string;
   allowedPaths: string[];
   isFirstLogin?: boolean;
+  tenantId?: string;
 }
 
 export const OPERATOR_ACCOUNTS: OperatorUser[] = [

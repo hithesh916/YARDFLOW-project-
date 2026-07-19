@@ -75,6 +75,7 @@ export interface TenantClient {
   onboardedDate: string;
   expiryDate: string;
   seats: number;
+  modules: string[];
 }
 
 export interface OperatorAccount {
@@ -83,6 +84,7 @@ export interface OperatorAccount {
   username: string;
   passcode: string;
   role: string;
+  tenantId?: string;
   isFirstLogin?: boolean;
 }
 
@@ -107,6 +109,12 @@ export interface SystemSettings {
   companyContact?: string;
   companyEmail?: string;
   companyGst?: string;
+  logoUrl?: string;
+  formCustomization?: {
+    enableQrCode?: boolean;
+    renameFields?: Record<string, string>;
+    optionalFields?: string[];
+  };
 }
 
 /** Everything the client needs to render the whole app in one payload. */

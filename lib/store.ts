@@ -55,7 +55,7 @@ interface Store {
     payload?: Record<string, unknown>,
   ) => Promise<boolean>;
   ackAlert: (id: number) => Promise<void>;
-  updateSettings: (settings: SystemSettings) => Promise<boolean>;
+  updateSettings: (settings: Partial<SystemSettings>) => Promise<boolean>;
   reset: () => Promise<void>;
 
   // SaaS and Admin mutations
@@ -64,7 +64,11 @@ interface Store {
     domain: string;
     plan: "Enterprise Plan" | "Professional Plan" | "Basic Plan";
     seats: number;
+    modules: string[];
+    adminUsername?: string;
+    adminPassword?: string;
   }) => Promise<boolean>;
+  updateTenantConfig: (id: string, seats: number, modules: string[]) => Promise<boolean>;
   extendTenant: (id: string, years: number) => Promise<boolean>;
   deleteTenant: (id: string) => Promise<boolean>;
   createOperator: (input: {
@@ -180,7 +184,7 @@ export const useStore = create<Store>((set, get) => ({
         allowedPaths = permGrid.allowedPaths;
       } else {
         // Fallback default permissions
-        if (dynamicOp.role === "Administrator") {
+        if (dynamicOp.role === "Administrator" || dynamicOp.role === "Admin") {
           allowedPaths = ["/", "/entry", "/billing", "/loading", "/exit", "/reports", "/admin"];
         } else if (dynamicOp.role === "Gate Operator") {
           allowedPaths = ["/", "/entry"];
@@ -347,6 +351,18 @@ export const useStore = create<Store>((set, get) => ({
       return true;
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Onboarding failed.");
+      return false;
+    }
+  },
+
+  updateTenantConfig: async (id, seats, modules) => {
+    try {
+      const state = await postJson("/api/tenants", { action: "updateConfig", id, seats, modules });
+      set({ ...state });
+      toast.success("Tenant configuration updated.");
+      return true;
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Update failed.");
       return false;
     }
   },
