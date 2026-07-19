@@ -12,8 +12,6 @@ export function Login() {
   const [showPassword, setShowPassword] = useState(false);
   const [busy, setBusy] = useState(false);
 
-  const [showDemoLogins, setShowDemoLogins] = useState(false);
-
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!username.trim()) {
@@ -35,12 +33,6 @@ export function Login() {
       toast.error("Invalid operator ID or passcode. Access denied.");
     }
   }
-
-  const demoAccounts = [
-    { u: "entry", p: "entry123", label: "Entry Gate Only" },
-    { u: "billing", p: "billing123", label: "Billing Approval Only" },
-    { u: "loading", p: "loading123", label: "Loading Approval Only" },
-  ];
 
   return (
     <div className="grid min-h-screen grid-cols-1 md:grid-cols-[450px_1fr] lg:grid-cols-[500px_1fr] bg-[#0b0f19] text-white">
@@ -171,43 +163,6 @@ export function Login() {
               {busy ? "Verifying..." : "Verify Credentials"}
             </button>
           </form>
-
-          {/* Quick-select Demo Logins section */}
-          <div className="mt-8 border-t border-[#121c32] pt-6">
-            <button
-              type="button"
-              onClick={() => setShowDemoLogins(!showDemoLogins)}
-              className="w-full flex items-center justify-between text-[11px] font-bold text-[#556d96] hover:text-blue-400"
-            >
-              <span>DEVELOPER TESTING LOGINS</span>
-              <span>{showDemoLogins ? "Hide" : "Show"}</span>
-            </button>
-
-            {showDemoLogins && (
-              <div className="mt-4 grid grid-cols-1 gap-2 rounded-lg border border-[#152345] bg-[#0a101d] p-3 text-[11px]">
-                {demoAccounts.map((acc) => (
-                  <button
-                    key={acc.u}
-                    type="button"
-                    onClick={() => {
-                      setUsername(acc.u);
-                      setPasscode(acc.p);
-                      setShowPassword(false);
-                    }}
-                    className="flex items-center justify-between py-1.5 px-2 rounded hover:bg-[#121d33] transition-colors text-left"
-                  >
-                    <div>
-                      <span className="font-extrabold text-[#7e99c8]">{acc.label}</span>
-                      <span className="block text-[9px] text-[#485d80] mt-0.5">ID: {acc.u}</span>
-                    </div>
-                    <span className="font-mono text-[#d97706] bg-[#1a1410] border border-[#302114] px-1.5 py-0.5 rounded">
-                      {acc.p}
-                    </span>
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
         </div>
       </div>
     </div>
