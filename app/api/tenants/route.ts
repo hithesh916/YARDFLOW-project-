@@ -8,10 +8,10 @@ export async function POST(req: Request) {
 
     let state;
     if (action === "create") {
-      if (!name || !domain || !plan || !seats) {
+      if (!name || !plan || !seats) {
         return NextResponse.json({ error: "Missing onboarding fields" }, { status: 400 });
       }
-      state = await createTenant({ name, domain, plan, seats: Number(seats), modules: modules || [], adminUsername, adminPassword });
+      state = await createTenant({ name, domain: domain || "", plan, seats: Number(seats), modules: modules || [], adminUsername, adminPassword });
     } else if (action === "updateConfig") {
       if (!id || !seats) {
         return NextResponse.json({ error: "Missing config fields" }, { status: 400 });

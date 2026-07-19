@@ -180,6 +180,7 @@ export async function printToken(ticket: Ticket, targetWindow?: Window): Promise
       <p class="name">${settings?.companyName ? escapeHtml(settings.companyName) : "YARDFLOW MANAGER"}</p>
       ${settings?.terminalName ? `<div class="terminal-lbl">${escapeHtml(settings.terminalName)}</div>` : ""}
       ${settings?.companyAddress ? `<div class="address-lbl">${escapeHtml(settings.companyAddress)}</div>` : ""}
+      ${settings?.companyContact ? `<div class="address-lbl">Contact: ${escapeHtml(settings.companyContact)}</div>` : ""}
       ${settings?.companyGst ? `<div class="gst-lbl">GST: ${escapeHtml(settings.companyGst)}</div>` : ""}
     </div>
     <div class="token-badge">
@@ -370,6 +371,7 @@ export async function printBillingToken(ticket: Ticket, targetWindow?: Window): 
       <p class="name">${settings?.companyName ? escapeHtml(settings.companyName) : "YARDFLOW MANAGER"}</p>
       ${settings?.terminalName ? `<div class="terminal-lbl">${escapeHtml(settings.terminalName)}</div>` : ""}
       ${settings?.companyAddress ? `<div class="address-lbl">${escapeHtml(settings.companyAddress)}</div>` : ""}
+      ${settings?.companyContact ? `<div class="address-lbl">Contact: ${escapeHtml(settings.companyContact)}</div>` : ""}
       ${settings?.companyGst ? `<div class="gst-lbl">GST: ${escapeHtml(settings.companyGst)}</div>` : ""}
     </div>
     <div class="token-badge">
@@ -567,6 +569,7 @@ export async function printLoadingToken(ticket: Ticket, targetWindow?: Window): 
       <p class="name">${settings?.companyName ? escapeHtml(settings.companyName) : "YARDFLOW MANAGER"}</p>
       ${settings?.terminalName ? `<div class="terminal-lbl">${escapeHtml(settings.terminalName)}</div>` : ""}
       ${settings?.companyAddress ? `<div class="address-lbl">${escapeHtml(settings.companyAddress)}</div>` : ""}
+      ${settings?.companyContact ? `<div class="address-lbl">Contact: ${escapeHtml(settings.companyContact)}</div>` : ""}
       ${settings?.companyGst ? `<div class="gst-lbl">GST: ${escapeHtml(settings.companyGst)}</div>` : ""}
     </div>
     <div class="token-badge">
@@ -630,6 +633,7 @@ export async function printLoadingTokens(tickets: Ticket[], targetWindow?: Windo
           <p class="name">${settings?.companyName ? escapeHtml(settings.companyName) : "YARDFLOW MANAGER"}</p>
           ${settings?.terminalName ? `<div class="terminal-lbl">${escapeHtml(settings.terminalName)}</div>` : ""}
           ${settings?.companyAddress ? `<div class="address-lbl">${escapeHtml(settings.companyAddress)}</div>` : ""}
+          ${settings?.companyContact ? `<div class="address-lbl">Contact: ${escapeHtml(settings.companyContact)}</div>` : ""}
           ${settings?.companyGst ? `<div class="gst-lbl">GST: ${escapeHtml(settings.companyGst)}</div>` : ""}
         </div>
         <div class="token-badge">
@@ -815,6 +819,7 @@ export async function printCombinedLoadingToken(tickets: Ticket[], targetWindow?
   <div class="ticket">
     <div class="brand">
       <p class="name">${settings?.companyName ? escapeHtml(settings.companyName) : "YARDFLOW MANAGER"}</p>
+      ${settings?.companyContact ? `<div class="boe" style="font-size:9px;margin-top:2px">Contact: ${escapeHtml(settings.companyContact)}</div>` : ""}
       ${commonBoe ? `<div class="boe">WORK ORDER NO: ${escapeHtml(commonBoe)}</div>` : ""}
     </div>
     <div class="eyebrow">COMBINED LOADING PASS</div>

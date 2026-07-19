@@ -101,8 +101,8 @@ export default function SuperAdminHub() {
 
   async function handleOnboard(e: React.FormEvent) {
     e.preventDefault();
-    if (!name.trim() || !domain.trim() || !adminUsername.trim() || !adminPassword.trim()) {
-      toast.error("Please fill in company name, domain, and admin credentials.");
+    if (!name.trim() || !adminUsername.trim() || !adminPassword.trim()) {
+      toast.error("Please fill in company name and admin credentials.");
       return;
     }
     setBusy(true);
@@ -211,7 +211,9 @@ export default function SuperAdminHub() {
                 />
               </div>
               <div>
-                <label className="mb-1 block text-xs font-bold text-slate-600">Primary Domain</label>
+                <label className="mb-1 block text-xs font-bold text-slate-600">
+                  Primary Domain <span className="font-normal text-slate-400">(Optional)</span>
+                </label>
                 <input
                   value={domain}
                   onChange={(e) => setDomain(e.target.value)}
