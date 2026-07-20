@@ -1,0 +1,10 @@
+# Never upload local env files with CLI deploys — DATABASE_URL lives in
+# Vercel's environment variables (Project Settings → Environment Variables).
+.env
+.env.*
+!.env.example
+
+# Local-only working docs and phase-1 file store
+CLAUDE.md
+AGENTS.md
+transactions/
