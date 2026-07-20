@@ -307,3 +307,13 @@
   -ms-overflow-style: none;  /* IE and Edge */
   scrollbar-width: none;  /* Firefox */
 }
+
+/* QR scanner scan-line animation */
+@keyframes scanline {
+  0%   { top: 0%;   opacity: 1; }
+  45%  { top: 100%; opacity: 1; }
+  50%  { top: 100%; opacity: 0; }
+  51%  { top: 0%;   opacity: 0; }
+  55%  { top: 0%;   opacity: 1; }
+  100% { top: 0%;   opacity: 1; }
+}

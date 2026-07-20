@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { toast } from "sonner";
 import {
   AlertTriangle,
@@ -10,6 +10,9 @@ import {
   DoorOpen,
   QrCode as QrIcon,
   ChevronDown,
+  Camera,
+  X,
+  Loader2,
 } from "lucide-react";
 import { Panel } from "@/components/panel";
 import { Pill } from "@/components/pill";
@@ -35,15 +38,18 @@ export default function ExitPage() {
   const [holdReason, setHoldReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [scanning, setScanning] = useState(false);
-  const [qrScanner, setQrScanner] = useState<any>(null);
+  const [verifying, setVerifying] = useState(false);
+  const scannerRef = useRef<any>(null);
+  const scannedOnce = useRef(false);
 
+  // Cleanup scanner on unmount
   useEffect(() => {
     return () => {
-      if (qrScanner && qrScanner.isScanning) {
-        qrScanner.stop().catch((e: any) => console.error("Scanner cleanup failed", e));
+      if (scannerRef.current?.isScanning) {
+        scannerRef.current.stop().catch(() => {});
       }
     };
-  }, [qrScanner]);
+  }, []);
 
   const fullExitQueue = tickets.filter((t) => t.status === "awaiting_exit");
   const queue = filterBySearch(fullExitQueue, search);
@@ -59,226 +65,160 @@ export default function ExitPage() {
     .sort((a, b) => (b.exitTime ?? "").localeCompare(a.exitTime ?? ""))
     .slice(0, 5);
 
-  function findTicket(code: string) {
-    const raw = code.trim();
-    const q = raw.replace(/\s+/g, " ").toLowerCase();
+  /* ──────────────────────────────────────────────
+     Core lookup — searches ALL awaiting_exit tickets
+     by ticket.id (what the loading pass QR encodes)
+     and falls back to tokens / vehicle / BOE.
+  ────────────────────────────────────────────── */
+  function matchInList(list: any[], raw: string): any | null {
+    const q = raw.trim().toLowerCase();
     if (!q) return null;
 
-    // 1️⃣ PRIORITY: Direct ticket.id match (this is what the loading pass QR encodes)
-    const byId = fullExitQueue.find((t) => t.id.toLowerCase() === q);
-    if (byId) return byId;
+    // 1. Exact ticket ID (what loading pass QR encodes)
+    let hit = list.find((t: any) => t.id.toLowerCase() === q);
+    if (hit) return hit;
 
-    // 2️⃣ Also try partial UUID match (QR sometimes wraps extra chars)
-    const byIdPartial = fullExitQueue.find((t) => q.includes(t.id.toLowerCase()) || t.id.toLowerCase().includes(q));
-    if (byIdPartial) return byIdPartial;
+    // 2. Partial / substring ID (for edge cases)
+    hit = list.find((t: any) => q.includes(t.id.toLowerCase()));
+    if (hit) return hit;
 
-    // 3️⃣ Fallback: token / vehicle / BOE matching
-    return fullExitQueue.find((t) => {
+    // 3. Token / vehicle / BOE fallbacks
+    return list.find((t: any) => {
       const lSerial = t.loadingSerial ?? t.serial;
       const bSerial = t.billingSerial ?? t.serial;
-      const lToken = `l-${String(lSerial).padStart(3, "0")}`;
-      const lTokenRaw = `l-${lSerial}`;
-
-      const gToken = t.createdSource === "billing" && (!t.serial || t.serial === 0) ? "" : `g-${String(t.serial).padStart(3, "0")}`;
-      const gTokenRaw = `g-${t.serial}`;
-
-      const bToken = t.status === "awaiting_billing" ? "" : `b-${String(bSerial).padStart(3, "0")}`;
-      const bTokenRaw = `b-${bSerial}`;
-
-      const mGate = t.manualGateToken?.toLowerCase();
-      const mBill = t.manualBillingToken?.toLowerCase();
-
+      const lToken  = `l-${String(lSerial).padStart(3, "0")}`;
+      const bToken  = `b-${String(bSerial).padStart(3, "0")}`;
+      const gToken  = t.createdSource === "billing" ? "" : `g-${String(t.serial).padStart(3, "0")}`;
       return (
         t.vehicle.toLowerCase() === q ||
         t.vehicle.toLowerCase().replace(/\s+/g, "") === q.replace(/\s+/g, "") ||
         t.boe.toLowerCase() === q ||
-        t.boe.toLowerCase().replace(/\s+/g, "") === q.replace(/\s+/g, "") ||
-        lToken === q ||
-        lTokenRaw === q ||
-        (gToken && (gToken === q || gTokenRaw === q)) ||
-        (bToken && (bToken === q || bTokenRaw === q)) ||
-        (mGate && mGate === q) ||
-        (mBill && mBill === q) ||
-        (t.workOrder && t.workOrder.toLowerCase() === q) ||
-        (t.workOrder && t.workOrder.toLowerCase().replace(/\s+/g, "") === q.replace(/\s+/g, "")) ||
-        q.includes(t.vehicle.toLowerCase()) ||
-        q.replace(/\s+/g, "").includes(t.vehicle.toLowerCase().replace(/\s+/g, ""))
+        lToken === q || `l-${lSerial}` === q ||
+        bToken === q || `b-${bSerial}` === q ||
+        (gToken && (gToken === q || `g-${t.serial}` === q)) ||
+        (t.manualGateToken?.toLowerCase() === q) ||
+        (t.manualBillingToken?.toLowerCase() === q) ||
+        (t.workOrder?.toLowerCase() === q)
       );
     });
   }
 
-  async function verifyManual() {
-    const input = manualId.trim();
-    if (!input) return;
+  /* ──────────────────────────────────────────────
+     Shared resolve — checks cache then hits server
+  ────────────────────────────────────────────── */
+  async function resolveCode(raw: string): Promise<any | null> {
+    const trimmed = raw.trim();
+    if (!trimmed) return null;
 
-    // 1. Try cached state
-    const fromCache = findTicket(input);
-    if (fromCache) {
-      setExitSelected(fromCache.id);
-      setManualId("");
-      toast.success(`✅ Verified: ${fromCache.vehicle} — ready for exit`);
-      return;
-    }
+    // 1. Try the in-memory cache first (instant)
+    const cached = matchInList(fullExitQueue, trimmed);
+    if (cached) return cached;
 
-    // 2. Fetch fresh state
+    // 2. Hit the server for fresh state (handles stale cache)
     try {
       const res = await fetch("/api/state", { cache: "no-store" });
-      if (res.ok) {
-        const freshState = await res.json();
-        const freshExitQueue = (freshState.tickets || []).filter(
-          (t: any) => t.status === "awaiting_exit"
-        );
-        const q = input.toLowerCase();
-        let found = freshExitQueue.find((t: any) => t.id.toLowerCase() === q);
-        if (!found) found = freshExitQueue.find((t: any) => q.includes(t.id.toLowerCase()));
-        if (!found) found = freshExitQueue.find((t: any) => {
-          const lToken = `l-${String(t.loadingSerial ?? t.serial).padStart(3, "0")}`;
-          const bToken = `b-${String(t.billingSerial ?? t.serial).padStart(3, "0")}`;
-          return (
-            t.vehicle.toLowerCase() === q ||
-            t.boe.toLowerCase() === q ||
-            lToken === q ||
-            bToken === q ||
-            (t.manualGateToken?.toLowerCase() === q) ||
-            (t.manualBillingToken?.toLowerCase() === q) ||
-            (t.workOrder?.toLowerCase() === q)
-          );
-        });
-
-        if (found) {
-          useStore.setState({ tickets: freshState.tickets });
-          setExitSelected(found.id);
-          setManualId("");
-          toast.success(`✅ Verified: ${found.vehicle} — ready for exit`);
-        } else {
-          toast.error(`❌ No exit-ready vehicle matches: "${input}" (${freshExitQueue.length} in queue)`);
-        }
+      if (!res.ok) return null;
+      const freshState = await res.json();
+      const freshQueue = (freshState.tickets || []).filter(
+        (t: any) => t.status === "awaiting_exit"
+      );
+      const found = matchInList(freshQueue, trimmed);
+      if (found) {
+        // Sync store with fresh server state
+        useStore.setState({ tickets: freshState.tickets });
       }
+      return found ?? null;
     } catch {
-      toast.error("Could not verify — check your connection.");
+      return null;
     }
   }
 
-  function simulateScan() {
-    if (queue.length === 0) {
-      toast.error("No vehicles waiting in the exit queue to scan.");
-      return;
-    }
-    const target = queue[0];
-    setManualId(target.vehicle);
-    setExitSelected(target.id);
-    toast.success(`[SIMULATED SCAN] Scanned loading pass QR for ${target.vehicle}`);
-  }
-
+  /* ──────────────────────────────────────────────
+     Camera scanner
+  ────────────────────────────────────────────── */
   async function startScanner() {
+    scannedOnce.current = false;
+    setScanning(true);
+
     try {
       const { Html5Qrcode } = await import("html5-qrcode");
-      setScanning(true);
-      setTimeout(async () => {
-        try {
-          const scanner = new Html5Qrcode("reader");
-          setQrScanner(scanner);
-          await scanner.start(
-            { facingMode: "environment" },
-            {
-              fps: 10,
-              qrbox: { width: 200, height: 200 },
-            },
-            (decodedText) => {
-              handleScannedCode(decodedText, scanner);
-            },
-            () => {}
-          );
-        } catch (err) {
-          toast.error("Failed to access camera. Please check permissions.");
-          setScanning(false);
-        }
-      }, 300);
-    } catch (e) {
-      toast.error("Could not load camera scanner library.");
-    }
-  }
+      const scanner = new Html5Qrcode("qr-reader");
+      scannerRef.current = scanner;
 
-  async function handleScannedCode(code: string, scannerInstance?: any) {
-    // Stop the camera first
-    const activeScanner = scannerInstance || qrScanner;
-    if (activeScanner && activeScanner.isScanning) {
-      try { await activeScanner.stop(); } catch (e) { console.error("Failed to stop scanner", e); }
-    }
-    setScanning(false);
-    setQrScanner(null);
-
-    const scannedRaw = code.trim();
-    toast.info(`Scanned: ${scannedRaw}`, { duration: 2000 });
-
-    // 1. Try cached state first (fast)
-    const fromCache = findTicket(scannedRaw);
-    if (fromCache) {
-      setExitSelected(fromCache.id);
-      setManualId("");
-      toast.success(`✅ Verified: ${fromCache.vehicle} — ready for exit`);
-      return;
-    }
-
-    // 2. Fetch fresh state from server (handles stale cache)
-    try {
-      const res = await fetch("/api/state", { cache: "no-store" });
-      if (res.ok) {
-        const freshState = await res.json();
-        const freshExitQueue: typeof tickets = (freshState.tickets || []).filter(
-          (t: any) => t.status === "awaiting_exit"
-        );
-
-        const q = scannedRaw.toLowerCase();
-
-        // Priority search on fresh data
-        let found = freshExitQueue.find((t: any) => t.id.toLowerCase() === q);
-        if (!found) found = freshExitQueue.find((t: any) => q.includes(t.id.toLowerCase()));
-        if (!found) found = freshExitQueue.find((t: any) => {
-          const lToken = `l-${String(t.loadingSerial ?? t.serial).padStart(3, "0")}`;
-          const bToken = `b-${String(t.billingSerial ?? t.serial).padStart(3, "0")}`;
-          return (
-            t.vehicle.toLowerCase() === q ||
-            t.boe.toLowerCase() === q ||
-            lToken === q ||
-            `l-${t.loadingSerial ?? t.serial}` === q ||
-            bToken === q ||
-            (t.manualGateToken?.toLowerCase() === q) ||
-            (t.manualBillingToken?.toLowerCase() === q) ||
-            (t.workOrder?.toLowerCase() === q)
-          );
-        });
-
-        if (found) {
-          // Update store with fresh data and select the ticket
-          useStore.setState({ tickets: freshState.tickets });
-          setExitSelected(found.id);
-          setManualId("");
-          toast.success(`✅ Verified: ${found.vehicle} — ready for exit`);
-        } else {
-          toast.error(
-            `❌ No exit-ready vehicle found for: "${scannedRaw}"\n(${freshExitQueue.length} vehicle(s) in exit queue)`,
-            { duration: 5000 }
-          );
-        }
-      }
-    } catch (err) {
-      toast.error("Could not verify scan — check your connection.");
+      await scanner.start(
+        { facingMode: "environment" },
+        {
+          fps: 30,               // ⚡ high framerate
+          qrbox: { width: 260, height: 260 },
+          aspectRatio: 1.0,
+          experimentalFeatures: {
+            useBarCodeDetectorIfSupported: true, // use native browser BarcodeDetector API if available
+          },
+        } as any,
+        (decodedText: string) => {
+          if (scannedOnce.current) return; // fire only once
+          scannedOnce.current = true;
+          handleCameraScan(decodedText, scanner);
+        },
+        () => {} // ignore individual frame errors
+      );
+    } catch (err: any) {
+      toast.error("Camera access failed — check browser permissions.");
+      setScanning(false);
+      scannerRef.current = null;
     }
   }
 
   async function stopScanner() {
-    if (qrScanner && qrScanner.isScanning) {
-      try {
-        await qrScanner.stop();
-      } catch (e) {
-        console.error(e);
-      }
+    if (scannerRef.current?.isScanning) {
+      try { await scannerRef.current.stop(); } catch {}
     }
+    scannerRef.current = null;
     setScanning(false);
-    setQrScanner(null);
   }
 
+  async function handleCameraScan(code: string, scannerInstance: any) {
+    // Stop camera immediately so it doesn't keep firing
+    if (scannerInstance?.isScanning) {
+      try { await scannerInstance.stop(); } catch {}
+    }
+    scannerRef.current = null;
+    setScanning(false);
+    setVerifying(true);
+
+    const found = await resolveCode(code);
+    setVerifying(false);
+
+    if (found) {
+      setExitSelected(found.id);
+      setManualId("");
+      toast.success(`✅ ${found.vehicle} verified — ready for exit`, { duration: 3000 });
+    } else {
+      toast.error(`QR not matched. Scanned: "${code.slice(0, 40)}"`, { duration: 5000 });
+    }
+  }
+
+  /* ──────────────────────────────────────────────
+     Manual / keyboard entry
+  ────────────────────────────────────────────── */
+  async function verifyManual() {
+    const input = manualId.trim();
+    if (!input) return;
+    setVerifying(true);
+    const found = await resolveCode(input);
+    setVerifying(false);
+    if (found) {
+      setExitSelected(found.id);
+      setManualId("");
+      toast.success(`✅ ${found.vehicle} verified — ready for exit`);
+    } else {
+      toast.error(`❌ No exit-ready vehicle found for: "${input}"`);
+    }
+  }
+
+  /* ──────────────────────────────────────────────
+     Permit / Hold actions
+  ────────────────────────────────────────────── */
   async function permit() {
     if (!selected) return;
     setBusy(true);
@@ -286,16 +226,14 @@ export default function ExitPage() {
     setBusy(false);
     if (ok) {
       setExitSelected(null);
-      toast.success("Exit recorded. Open the physical gate only after receiving the backend confirmation.");
+      toast.success("Exit recorded — gate cleared.");
     }
   }
+
   async function hold() {
     if (!selected) return;
     const reason = holdReason.trim().replace(/[<>]/g, "").slice(0, 500);
-    if (!reason) {
-      toast.error("A hold reason is required.");
-      return;
-    }
+    if (!reason) { toast.error("A hold reason is required."); return; }
     setBusy(true);
     const ok = await ticketAction(selected.id, "hold", { reason });
     setBusy(false);
@@ -306,122 +244,158 @@ export default function ExitPage() {
     }
   }
 
+  /* ──────────────────────────────────────────────
+     Render
+  ────────────────────────────────────────────── */
   return (
     <div className="flex flex-col gap-5">
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[380px_1fr]">
-        {/* Left panel: scan & Previews */}
-        <div className="flex flex-col gap-5">
-          {/* Scan / verification */}
-          <Panel className="p-6 text-center">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[400px_1fr]">
+
+        {/* ── Left column: scanner + preview ── */}
+        <div className="flex flex-col gap-4">
+
+          {/* Scanner card */}
+          <Panel className="overflow-hidden p-0">
             {scanning ? (
-              <div className="mb-4">
-                <div id="reader" className="mx-auto overflow-hidden rounded-xl border border-slate-200 bg-black w-[200px] h-[200px]"></div>
+              /* ─ CAMERA VIEW ─ */
+              <div className="relative bg-black">
+                {/* Html5Qrcode mounts the video into this div */}
+                <div
+                  id="qr-reader"
+                  className="w-full"
+                  style={{ minHeight: 320 }}
+                />
+
+                {/* Scan-frame overlay */}
+                <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                  <div className="relative h-64 w-64">
+                    {/* Corner brackets */}
+                    {["top-0 left-0","top-0 right-0","bottom-0 left-0","bottom-0 right-0"].map((pos, i) => (
+                      <span
+                        key={i}
+                        className={`absolute ${pos} h-8 w-8 border-[3px] border-emerald-400 ${
+                          i === 0 ? "border-r-0 border-b-0 rounded-tl-lg" :
+                          i === 1 ? "border-l-0 border-b-0 rounded-tr-lg" :
+                          i === 2 ? "border-r-0 border-t-0 rounded-bl-lg" :
+                                    "border-l-0 border-t-0 rounded-br-lg"
+                        }`}
+                      />
+                    ))}
+                    {/* Animated scan line */}
+                    <div className="absolute inset-x-0 top-0 h-0.5 bg-emerald-400 opacity-80 animate-[scanline_2s_linear_infinite]" />
+                  </div>
+                </div>
+
+                {/* Stop button */}
                 <button
                   onClick={stopScanner}
-                  className="mt-3.5 rounded-lg bg-red-600 px-4 py-2 text-xs font-bold text-white hover:bg-red-700 cursor-pointer active:scale-95 transition-all"
+                  className="absolute top-3 right-3 flex items-center gap-1.5 rounded-full bg-black/70 px-3 py-1.5 text-xs font-bold text-white backdrop-blur-sm hover:bg-red-600/80 transition-colors cursor-pointer"
                 >
-                  Stop Camera
+                  <X size={12} /> Stop
                 </button>
+
+                {/* Hint */}
+                <p className="absolute bottom-4 inset-x-0 text-center text-[11px] font-semibold text-white/70">
+                  Align QR inside the frame
+                </p>
               </div>
             ) : (
-              <>
-                <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-xl border-2 border-dashed border-blue-300 text-blue-600 animate-pulse">
-                  <QrIcon size={28} />
-                </div>
-                <p className="font-extrabold text-slate-800 text-[15px]">Scan Pass</p>
-                <p className="mb-4 mt-1 text-xs text-slate-400">
-                  Scan Loading Pass QR with device camera
-                </p>
+              /* ─ IDLE STATE ─ */
+              <div className="p-6">
                 <button
                   onClick={startScanner}
-                  className="mb-5 flex w-full items-center justify-center gap-2 rounded-lg bg-primary py-3 text-[13px] font-extrabold text-primary-foreground transition-colors hover:bg-primary/95 cursor-pointer active:scale-[0.99] transition-all shadow-sm"
+                  disabled={verifying}
+                  className="mb-4 flex w-full flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed border-blue-300 bg-blue-50/50 dark:bg-blue-950/10 dark:border-blue-800 py-8 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/20 transition-colors cursor-pointer group disabled:opacity-50"
                 >
-                  <QrIcon size={14} /> Start Camera Scanner
+                  <div className="flex h-14 w-14 items-center justify-center rounded-xl bg-blue-100 dark:bg-blue-900/40 group-hover:scale-105 transition-transform">
+                    <Camera size={26} />
+                  </div>
+                  <div className="text-center">
+                    <p className="text-[14px] font-extrabold">Scan Loading Pass QR</p>
+                    <p className="text-[11px] text-blue-400 mt-0.5">Tap to open camera</p>
+                  </div>
                 </button>
-              </>
+
+                {/* Manual entry */}
+                <label className="mb-1.5 block text-[11px] font-extrabold tracking-widest text-slate-400 uppercase">
+                  Manual Entry
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    value={manualId}
+                    onChange={(e) => setManualId(e.target.value.toUpperCase())}
+                    onKeyDown={(e) => e.key === "Enter" && verifyManual()}
+                    autoFocus
+                    placeholder="Vehicle / Token / BOE"
+                    className="flex-1 rounded-lg border border-input bg-slate-50 dark:bg-black px-3.5 py-3 text-[13px] font-bold uppercase outline-none focus:ring-2 focus:ring-ring"
+                  />
+                  <button
+                    onClick={verifyManual}
+                    disabled={verifying || !manualId.trim()}
+                    className="flex items-center justify-center gap-1.5 rounded-lg bg-primary px-4 py-3 text-[13px] font-extrabold text-primary-foreground hover:bg-primary/90 disabled:opacity-40 cursor-pointer active:scale-95 transition-all"
+                  >
+                    {verifying ? <Loader2 size={15} className="animate-spin" /> : <ArrowRight size={15} />}
+                  </button>
+                </div>
+              </div>
             )}
 
-            <label className="mb-1.5 block text-left text-[11px] font-extrabold text-slate-500">
-              SCAN PASS / MANUAL ENTRY
-            </label>
-            <input
-              value={manualId}
-              onChange={(e) => setManualId(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && verifyManual()}
-              autoFocus
-              placeholder="ABC-1234"
-              className="mb-3 w-full rounded-lg border border-input bg-slate-50 dark:bg-black px-3.5 py-3 text-center text-[15px] font-extrabold uppercase outline-none focus:ring-2 focus:ring-ring"
-            />
-            <button
-              onClick={verifyManual}
-              className="mb-2.5 flex w-full items-center justify-center gap-2 rounded-lg bg-secondary py-3 text-[13px] font-extrabold text-secondary-foreground transition-colors hover:bg-secondary/90 cursor-pointer active:scale-[0.99] transition-all"
-            >
-              <ArrowRight size={16} /> Verify Manual ID
-            </button>
+            {/* Verifying overlay on top of camera */}
+            {verifying && (
+              <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 rounded-xl bg-black/60 backdrop-blur-sm">
+                <Loader2 size={36} className="animate-spin text-white" />
+                <p className="text-sm font-bold text-white">Verifying…</p>
+              </div>
+            )}
           </Panel>
 
           {/* Live Gate Pass Preview */}
-          <Panel className="bg-slate-50 p-6">
-            <p className="mb-4 text-[11px] font-extrabold tracking-[0.08em] text-slate-500">
-              LIVE GATE PASS PREVIEW
+          <Panel className="bg-slate-50 dark:bg-slate-900/50 p-5">
+            <p className="mb-3 text-[10px] font-extrabold tracking-[0.1em] text-slate-400 uppercase">
+              Live Gate Pass Preview
             </p>
-            <div className="rounded-xl border border-slate-200 bg-white p-6 text-center shadow-sm">
+            <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 text-center shadow-sm">
               {selected && (
-                <div className="mb-3 font-black text-lg tracking-[0.05em] text-slate-800 uppercase">
-                  TOKEN NO: E-{String(selected.loadingSerial ?? selected.serial).padStart(3, "0")}
+                <div className="mb-2 text-sm font-black tracking-wider text-slate-700 dark:text-slate-200 uppercase">
+                  TOKEN: L-{String(selected.loadingSerial ?? selected.serial).padStart(3, "0")}
                 </div>
               )}
-              <p className="font-extrabold leading-tight text-slate-900">
-                YARDFLOW SYSTEMS
-              </p>
+              <p className="font-extrabold text-slate-900 dark:text-white">YARDFLOW SYSTEMS</p>
               {settings?.terminalName && (
-                <p className="mb-4 mt-0.5 text-[10px] text-slate-400">
-                  {settings.terminalName}
-                </p>
+                <p className="mt-0.5 text-[10px] text-slate-400">{settings.terminalName}</p>
               )}
-              <div className="my-3 border-t border-dashed border-slate-200" />
+              <div className="my-3 border-t border-dashed border-slate-200 dark:border-slate-700" />
               <div className="mb-4 flex flex-col gap-1.5 text-left text-xs">
-                <div className="flex justify-between font-bold">
-                  <span className="text-slate-400">VEHICLE:</span>
-                  <span className="text-slate-800">{selected?.vehicle ?? "—"}</span>
-                </div>
-                <div className="flex justify-between font-bold">
-                  <span className="text-slate-400">BOE NO:</span>
-                  <span className="text-slate-800">{selected?.boe ?? "—"}</span>
-                </div>
-                <div className="flex justify-between font-bold">
-                  <span className="text-slate-400">INVOICE:</span>
-                  <span className="text-slate-800">{selected?.invoice ?? "—"}</span>
-                </div>
-                <div className="flex justify-between font-bold">
-                  <span className="text-slate-400">EXIT:</span>
-                  <span className="text-slate-800">{fmtTime(new Date())}</span>
-                </div>
+                {[
+                  ["VEHICLE", selected?.vehicle ?? "—"],
+                  ["BOE NO", selected?.boe ?? "—"],
+                  ["INVOICE", selected?.invoice ?? "—"],
+                  ["EXIT TIME", fmtTime(new Date())],
+                ].map(([k, v]) => (
+                  <div key={k} className="flex justify-between font-bold">
+                    <span className="text-slate-400">{k}:</span>
+                    <span className="text-slate-800 dark:text-slate-200">{v}</span>
+                  </div>
+                ))}
               </div>
-              <div className="mx-auto mt-4 flex h-20 w-20 items-center justify-center">
+              <div className="mx-auto flex h-20 w-20 items-center justify-center">
                 {selected ? (
-                  <QrCode
-                    value={selected.id}
-                    size={80}
-                  />
+                  <QrCode value={selected.id} size={80} />
                 ) : (
-                  <div className="flex h-20 w-20 items-center justify-center rounded-lg bg-slate-900 text-[10px] font-bold text-slate-500">
-                    QR
+                  <div className="flex h-20 w-20 items-center justify-center rounded-lg bg-slate-100 dark:bg-slate-800 text-[10px] font-bold text-slate-400">
+                    <QrIcon size={28} className="opacity-30" />
                   </div>
                 )}
               </div>
-              <p className="mt-3 text-[10px] text-slate-400">
-                Thank you for your visit.
-              </p>
+              <p className="mt-3 text-[10px] text-slate-400">Thank you for your visit.</p>
             </div>
           </Panel>
         </div>
 
-        {/* Right panel: focus panel */}
+        {/* ── Right column: focus panel ── */}
         <div className="flex flex-col gap-5">
-          {/* Focus Panel */}
-          {selected && (
-            <Panel className="border-l-4 border-l-emerald-600 p-8 animate-fadeIn">
+          {selected ? (
+            <Panel className="border-l-4 border-l-emerald-500 p-8 animate-fadeIn">
               <div className="mb-1.5 flex items-start justify-between">
                 <Pill tone="slate">READY FOR DISPATCH</Pill>
                 <div className="text-right">
@@ -429,14 +403,12 @@ export default function ExitPage() {
                     <CheckCircle2 size={16} /> All Clear
                   </p>
                   <p className="mt-0.5 text-xs text-slate-400">
-                    In yard{" "}
-                    {durationBetween(selected.entryTime, new Date().toISOString())}
+                    In yard {durationBetween(selected.entryTime, new Date().toISOString())}
                   </p>
                 </div>
               </div>
-              <div className="mb-1.5 mt-1 text-4xl font-extrabold">
-                {selected.vehicle}
-              </div>
+              <div className="mb-1.5 mt-1 text-4xl font-extrabold">{selected.vehicle}</div>
+
               <div className="mb-6 grid grid-cols-2 gap-4">
                 <DropdownMenu>
                   <DropdownMenuTrigger
@@ -460,7 +432,7 @@ export default function ExitPage() {
                         className={`flex flex-col items-start gap-0.5 px-3 py-2 text-xs rounded-md transition-colors cursor-pointer ${
                           t.id === selected.id
                             ? "bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-400 font-extrabold"
-                            : "text-slate-700 dark:text-slate-350 hover:bg-slate-50 dark:hover:bg-slate-800"
+                            : "text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800"
                         }`}
                       >
                         <div className="flex items-center justify-between w-full">
@@ -480,27 +452,16 @@ export default function ExitPage() {
                   <p className="mb-4 text-[11px] font-extrabold tracking-[0.06em] text-slate-500">
                     WORKFLOW VERIFICATION
                   </p>
-                  <VerifStep
-                    t="1. Entry Recorded"
-                    d={`Gate A-1 @ ${fmtTime(selected.entryTime)}`}
-                  />
-                  <VerifStep
-                    t="2. Billing Completed"
-                    d={`Invoice #${selected.invoice ?? "—"}`}
-                  />
-                  <VerifStep
-                    t="3. Loading Completed"
-                    d={`${selected.bay} @ ${
-                      selected.loadingEnd ? fmtTime(selected.loadingEnd) : "—"
-                    }`}
-                  />
+                  <VerifStep t="1. Entry Recorded"    d={`Gate A-1 @ ${fmtTime(selected.entryTime)}`} />
+                  <VerifStep t="2. Billing Completed"  d={`Invoice #${selected.invoice ?? "—"}`} />
+                  <VerifStep t="3. Loading Completed"  d={`${selected.bay} @ ${selected.loadingEnd ? fmtTime(selected.loadingEnd) : "—"}`} />
                 </div>
 
-                <div className="rounded-xl bg-slate-50 p-5">
+                <div className="rounded-xl bg-slate-50 dark:bg-slate-900/50 p-5">
                   <p className="mb-3 flex items-center gap-1.5 text-[11px] font-extrabold text-red-600">
                     <AlertTriangle size={14} /> EXCEPTION PROTOCOL
                   </p>
-                  <label className="mb-0.5 block text-[13px] font-bold text-slate-700">
+                  <label className="mb-0.5 block text-[13px] font-bold text-slate-700 dark:text-slate-300">
                     Reason for Hold
                   </label>
                   <textarea
@@ -508,12 +469,12 @@ export default function ExitPage() {
                     onChange={(e) => setHoldReason(e.target.value)}
                     rows={3}
                     placeholder="Specify vehicle hold reason..."
-                    className="mb-3 mt-1.5 w-full resize-y rounded-lg border border-input bg-slate-50 dark:bg-black px-3 py-2.5 text-[13px] outline-none focus:ring-2 focus:ring-ring"
+                    className="mb-3 mt-1.5 w-full resize-y rounded-lg border border-input bg-white dark:bg-black px-3 py-2.5 text-[13px] outline-none focus:ring-2 focus:ring-ring"
                   />
                   <button
                     onClick={hold}
                     disabled={busy}
-                    className="flex w-full items-center justify-center gap-2 rounded-lg bg-destructive py-2.5 text-[13px] font-extrabold text-destructive-foreground transition-colors hover:bg-destructive/90 disabled:opacity-50 cursor-pointer active:scale-95 transition-all"
+                    className="flex w-full items-center justify-center gap-2 rounded-lg bg-destructive py-2.5 text-[13px] font-extrabold text-destructive-foreground hover:bg-destructive/90 disabled:opacity-50 cursor-pointer active:scale-95 transition-all"
                   >
                     <Ban size={14} /> Hold Vehicle
                   </button>
@@ -523,28 +484,40 @@ export default function ExitPage() {
               <button
                 onClick={permit}
                 disabled={busy}
-                className="mt-6 flex w-full items-center justify-center gap-2 rounded-lg bg-primary py-4 text-[15px] font-extrabold text-primary-foreground transition-all hover:bg-primary/95 disabled:opacity-50 cursor-pointer active:scale-[0.99]"
+                className="mt-6 flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 py-4 text-[16px] font-extrabold text-white transition-all hover:bg-emerald-700 disabled:opacity-50 cursor-pointer active:scale-[0.99] shadow-lg shadow-emerald-500/20"
               >
-                <DoorOpen size={18} /> Permit Exit &amp; Open Gate
+                {busy ? <Loader2 size={18} className="animate-spin" /> : <DoorOpen size={18} />}
+                {busy ? "Processing…" : "Permit Exit & Open Gate"}
               </button>
+            </Panel>
+          ) : (
+            /* Empty state */
+            <Panel className="flex flex-col items-center justify-center py-20 text-center">
+              <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-slate-100 dark:bg-slate-800 text-slate-400">
+                <QrIcon size={28} />
+              </div>
+              <p className="font-extrabold text-slate-700 dark:text-slate-200">No vehicle selected</p>
+              <p className="mt-1 max-w-xs text-sm text-slate-400">
+                Scan the Loading Pass QR code or enter a vehicle / token number on the left.
+              </p>
             </Panel>
           )}
         </div>
       </div>
 
-      {/* Today's Exited - Full Landscape Row */}
+      {/* Today's exits */}
       <Panel className="p-6">
         <p className="mb-4 text-[11px] font-black tracking-[0.08em] text-slate-500 uppercase">
-          TODAY&apos;S EXITED
+          Today&apos;s Exited
         </p>
         {recentExits.length === 0 ? (
-          <p className="text-xs text-slate-400 py-4 text-center">No exits recorded today yet.</p>
+          <p className="py-4 text-center text-xs text-slate-400">No exits recorded today yet.</p>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
             {recentExits.map((t) => (
               <div
                 key={t.id}
-                className="flex items-center justify-between rounded-lg border border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900/50 px-4 py-3 shadow-sm hover:border-slate-350 transition-colors"
+                className="flex items-center justify-between rounded-lg border border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900/50 px-4 py-3 shadow-sm"
               >
                 <div>
                   <p className="text-sm font-bold text-slate-800 dark:text-slate-100">{t.vehicle}</p>
@@ -554,7 +527,7 @@ export default function ExitPage() {
                   <span className="text-xs font-bold text-slate-500 block">
                     L-{String(t.loadingSerial ?? t.serial).padStart(3, "0")}
                   </span>
-                  <span className="inline-flex items-center rounded bg-blue-50 px-1.5 py-0.5 text-[9px] font-bold text-blue-700 mt-0.5">
+                  <span className="inline-flex items-center rounded bg-emerald-50 dark:bg-emerald-950/40 px-1.5 py-0.5 text-[9px] font-bold text-emerald-700 dark:text-emerald-400 mt-0.5">
                     EXITED
                   </span>
                 </div>
@@ -567,14 +540,15 @@ export default function ExitPage() {
   );
 }
 
+/* ── Sub-components ── */
 function VerifStep({ t, d }: { t: string; d: string }) {
   return (
     <div className="mb-4 flex items-start gap-3">
-      <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-emerald-50 text-emerald-600">
+      <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600">
         <CheckCircle2 size={14} />
       </div>
       <div>
-        <p className="text-sm font-bold text-slate-800">{t}</p>
+        <p className="text-sm font-bold text-slate-800 dark:text-slate-200">{t}</p>
         <p className="mt-0.5 text-xs text-slate-400">{d}</p>
       </div>
     </div>
@@ -583,7 +557,7 @@ function VerifStep({ t, d }: { t: string; d: string }) {
 
 function InfoBox({ k, v }: { k: string; v: string }) {
   return (
-    <div className="rounded-lg bg-slate-50 p-3.5 border border-slate-200 dark:bg-slate-900 dark:border-slate-800">
+    <div className="rounded-lg bg-slate-50 dark:bg-slate-900 p-3.5 border border-slate-200 dark:border-slate-800">
       <p className="text-[11px] font-bold text-slate-400">{k}</p>
       <p className="mt-0.5 font-bold text-slate-800 dark:text-slate-100">{v}</p>
     </div>
