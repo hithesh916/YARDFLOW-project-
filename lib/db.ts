@@ -309,7 +309,9 @@ export async function createTicket(input: {
 
     const serial = input.createdSource === "billing" ? 0 : (todaySerials.length > 0 ? Math.max(...todaySerials) + 1 : 1);
     const datePart = todayStr.replace(/-/g, "");
-    const id = `TK-${datePart}-${serial}`;
+    const id = input.createdSource === "billing" 
+      ? `B-${datePart}-${Math.floor(1000 + Math.random() * 9000)}`
+      : `TK-${datePart}-${serial}`;
 
     if (input.createdSource !== "billing") {
       l.counters.serial = serial;

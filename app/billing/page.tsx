@@ -123,61 +123,62 @@ export default function BillingPage() {
 
     setBusy(true);
 
-    // 1. Look up if BOE has a checked-in ticket awaiting billing
-    let target = matchedTicket || tickets.find(
-      (t) => t.boe.toUpperCase() === b && t.status === "awaiting_billing"
-    );
+    try {
+      // 1. Look up if BOE has a checked-in ticket awaiting billing
+      let target = (matchedTicket?.status === "awaiting_billing" ? matchedTicket : null) || tickets.find(
+        (t) => t.boe.toUpperCase() === b && t.status === "awaiting_billing"
+      );
 
-    // 2. If no checked-in ticket exists, create a new one first
-    if (!target) {
-      const created = await createTicket({
-        vehicle: b,
-        boe: b,
-        agent: agent.trim() || undefined,
-        remarks: remarks.trim() || "Created directly at Billing Desk",
-        createdSource: "billing",
-      });
-      if (!created) {
-        setBusy(false);
-        return;
+      // 2. If no checked-in ticket exists, create a new one first
+      if (!target) {
+        const created = await createTicket({
+          vehicle: prefillVehicle || b,
+          boe: b,
+          agent: agent.trim() || undefined,
+          remarks: remarks.trim() || "Created directly at Billing Desk",
+          createdSource: "billing",
+        });
+        if (!created) {
+          return;
+        }
+        target = created;
       }
-      target = created;
-    }
 
-    // 3. Complete billing on target ticket
-    const inv = invoice.trim().toUpperCase() || "N/A";
+      // 3. Complete billing on target ticket
+      const inv = invoice.trim().toUpperCase() || "N/A";
 
-    const ok = await ticketAction(target.id, "complete-billing", {
-      invoice: inv,
-      paymentStatus: paymentStatus,
-      boe: b,
-      agent: agent.trim() || target.agent,
-      remarks: remarks.trim() || target.remarks,
-    });
-
-    setBusy(false);
-
-    if (ok) {
-      const freshTicket = useStore.getState().tickets.find((t) => t.id === target.id);
-      const printTicket = freshTicket || {
-        ...target,
+      const ok = await ticketAction(target.id, "complete-billing", {
         invoice: inv,
-        paymentStatus,
+        paymentStatus: paymentStatus,
         boe: b,
         agent: agent.trim() || target.agent,
-      };
-      setLastBilled(printTicket);
-      await printBillingToken(printTicket);
-      
-      // Clear form inputs
-      setBoe("");
-      setAgent("");
-      setRemarks("");
-      setInvoice("");
-      setPaymentStatus("Paid");
-      setMatchedTicket(null);
-      setPrefillVehicle(null);
-      toast.success(`Billing approved (${paymentStatus}) — printing token`);
+        remarks: remarks.trim() || target.remarks,
+      });
+
+      if (ok) {
+        const freshTicket = useStore.getState().tickets.find((t) => t.id === target!.id);
+        const printTicket = freshTicket || {
+          ...target,
+          invoice: inv,
+          paymentStatus,
+          boe: b,
+          agent: agent.trim() || target.agent,
+        };
+        setLastBilled(printTicket);
+        await printBillingToken(printTicket);
+        
+        // Clear form inputs
+        setBoe("");
+        setAgent("");
+        setRemarks("");
+        setInvoice("");
+        setPaymentStatus("Paid");
+        setMatchedTicket(null);
+        setPrefillVehicle(null);
+        toast.success(`Billing approved (${paymentStatus}) — printing token`);
+      }
+    } finally {
+      setBusy(false);
     }
   }
 
