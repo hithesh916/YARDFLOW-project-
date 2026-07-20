@@ -217,11 +217,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     return <Login />;
   }
 
-  // Render Force Password Change screen if first-time login
-  if (ready && currentUser?.isFirstLogin) {
-    return <ForcePasswordChange />;
-  }
-
   // Filter navigation links according to current user's permissions (Dashboard is always visible)
   const allowedPrimary = PRIMARY.filter((item) => {
     const isAllowedByRole = item.href === "/" || (currentUser?.allowedPaths.includes(item.href) ?? false);
@@ -540,90 +535,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   );
 }
 
-function ForcePasswordChange() {
-  const currentUser = useStore((s) => s.currentUser);
-  const changePassword = useStore((s) => s.changePassword);
-  const [passcode, setPasscode] = useState("");
-  const [confirmPasscode, setConfirmPasscode] = useState("");
-  const [busy, setBusy] = useState(false);
-
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!passcode || !confirmPasscode) {
-      toast.error("Please fill in all passcode fields.");
-      return;
-    }
-    if (passcode !== confirmPasscode) {
-      toast.error("New passcode and confirm passcode do not match.");
-      return;
-    }
-    if (passcode.length < 4) {
-      toast.error("Passcode must be at least 4 characters long.");
-      return;
-    }
-
-    setBusy(true);
-    const ok = await changePassword(currentUser!.username, passcode);
-    setBusy(false);
-    if (ok) {
-      toast.success("Security passcode updated successfully. Welcome!");
-    }
-  }
-
-  return (
-    <div className="flex min-h-screen items-center justify-center bg-[#070b14] p-6 text-white">
-      <div className="w-full max-w-[400px] rounded-2xl border border-[#16223b] bg-[#0d1424] p-8 shadow-xl">
-        <div className="mx-auto mb-5 flex h-12 w-12 items-center justify-center rounded-xl bg-blue-900/40 text-blue-400 border border-blue-800/40">
-          <Key size={22} />
-        </div>
-        <h2 className="text-center text-xl font-extrabold tracking-tight text-white">
-          Update Security Passcode
-        </h2>
-        <p className="mt-2 text-center text-xs text-slate-400 leading-relaxed">
-          Welcome to YARDFLOW, <span className="font-bold text-white">{currentUser?.name}</span>! Since this is your first-time login, please update your temporary passcode to continue.
-        </p>
-
-        <form onSubmit={handleSubmit} className="mt-6 flex flex-col gap-4">
-          <div>
-            <label className="mb-2 block text-[10px] font-black tracking-wider text-slate-400 uppercase">
-              NEW SECURITY PASSCODE / PIN
-            </label>
-            <input
-              type="password"
-              value={passcode}
-              onChange={(e) => setPasscode(e.target.value)}
-              placeholder="e.g. 12345"
-              className="w-full rounded-lg border border-[#16223b] bg-[#070b14] py-3 px-3.5 text-sm text-white placeholder-slate-600 outline-none transition-all focus:border-blue-500 focus:ring-2 focus:ring-blue-900/40 font-mono"
-            />
-          </div>
-
-          <div>
-            <label className="mb-2 block text-[10px] font-black tracking-wider text-slate-400 uppercase">
-              CONFIRM NEW PASSCODE / PIN
-            </label>
-            <input
-              type="password"
-              value={confirmPasscode}
-              onChange={(e) => setConfirmPasscode(e.target.value)}
-              placeholder="e.g. 12345"
-              className="w-full rounded-lg border border-[#16223b] bg-[#070b14] py-3 px-3.5 text-sm text-white placeholder-slate-600 outline-none transition-all focus:border-blue-500 focus:ring-2 focus:ring-blue-900/40 font-mono"
-            />
-          </div>
-
-          <button
-            type="submit"
-            disabled={busy}
-            className="mt-2 flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 py-3 text-sm font-bold text-white hover:bg-blue-500 transition-colors disabled:opacity-40"
-          >
-            {busy ? "Updating..." : "Save and Continue"}
-          </button>
-        </form>
-      </div>
-    </div>
-  );
-}
-
-// Self-service passcode change, available anytime from the sidebar (not just
+// Self-service passcode change, available anytime from the sidebar
 // first login). Verifies the current passcode client-side against currentUser,
 // then reuses the same changePassword store action → /api/operators → DB.
 function ChangePasswordDialog({ onClose }: { onClose: () => void }) {
