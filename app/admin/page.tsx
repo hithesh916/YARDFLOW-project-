@@ -539,11 +539,11 @@ export default function AdminPage() {
               </p>
               
               <Dialog>
-                <DialogTrigger asChild>
+                <DialogTrigger render={
                   <button className="flex items-center gap-2 rounded-lg bg-red-600 px-6 py-2.5 text-xs font-bold text-white hover:bg-red-700 transition-colors shadow-sm">
                     <Trash2 size={16} /> Delete All Data
                   </button>
-                </DialogTrigger>
+                } />
                 <DialogContent>
                   <DialogHeader>
                     <DialogTitle>Are you absolutely sure?</DialogTitle>
@@ -552,12 +552,12 @@ export default function AdminPage() {
                     </DialogDescription>
                   </DialogHeader>
                   <DialogFooter className="mt-4 flex gap-3 sm:justify-end">
-                    <DialogClose asChild>
+                    <DialogClose render={
                       <button className="rounded-lg px-4 py-2 text-sm font-bold text-slate-600 hover:bg-slate-100 transition-colors">
                         Cancel
                       </button>
-                    </DialogClose>
-                    <DialogClose asChild>
+                    } />
+                    <DialogClose render={
                       <button 
                         onClick={async () => {
                           setBusy(true);
@@ -568,7 +568,7 @@ export default function AdminPage() {
                       >
                         Yes, Reset Data
                       </button>
-                    </DialogClose>
+                    } />
                   </DialogFooter>
                 </DialogContent>
               </Dialog>
