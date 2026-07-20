@@ -161,6 +161,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [now, setNow] = useState<Date | null>(null);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [hasRedirected, setHasRedirected] = useState(false);
+  const [changePwOpen, setChangePwOpen] = useState(false);
 
   useEffect(() => {
     hydrate().then(() => startPolling());
@@ -249,6 +250,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="flex min-h-screen">
+      {changePwOpen && (
+        <ChangePasswordDialog onClose={() => setChangePwOpen(false)} />
+      )}
       {/* Desktop Sidebar (hidden on mobile/tablet) */}
       <aside className="hidden lg:flex sticky top-0 h-screen w-[260px] shrink-0 flex-col border-r border-slate-200 bg-white">
         <div className="px-6 pb-5 pt-6">
@@ -292,6 +296,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               />
             ))}
             
+            {/* Change Password Button in Sidebar */}
+            <button
+              onClick={() => setChangePwOpen(true)}
+              className="flex w-full items-center gap-3 rounded-lg px-4 py-2.5 text-sm font-semibold text-slate-600 transition-colors hover:bg-slate-50 hover:text-slate-900 text-left outline-none mt-1"
+            >
+              <Key size={18} className="shrink-0" />
+              Change Password
+            </button>
+
             {/* Sign Out Button in Sidebar */}
             <button
               onClick={() => logout()}
@@ -370,6 +383,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   </div>
                 ))}
                 
+                <button
+                  onClick={() => {
+                    setMobileOpen(false);
+                    setChangePwOpen(true);
+                  }}
+                  className="flex w-full items-center gap-3 rounded-lg px-4 py-2.5 text-sm font-semibold text-slate-600 transition-colors hover:bg-slate-50 hover:text-slate-900 text-left outline-none mt-1"
+                >
+                  <Key size={18} className="shrink-0" />
+                  Change Password
+                </button>
+
                 <button
                   onClick={() => {
                     setMobileOpen(false);
@@ -593,6 +617,138 @@ function ForcePasswordChange() {
           >
             {busy ? "Updating..." : "Save and Continue"}
           </button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// Self-service passcode change, available anytime from the sidebar (not just
+// first login). Verifies the current passcode client-side against currentUser,
+// then reuses the same changePassword store action → /api/operators → DB.
+function ChangePasswordDialog({ onClose }: { onClose: () => void }) {
+  const currentUser = useStore((s) => s.currentUser);
+  const changePassword = useStore((s) => s.changePassword);
+  const [current, setCurrent] = useState("");
+  const [passcode, setPasscode] = useState("");
+  const [confirmPasscode, setConfirmPasscode] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const isSuperadmin = currentUser?.role === "superadmin";
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!current || !passcode || !confirmPasscode) {
+      toast.error("Please fill in all passcode fields.");
+      return;
+    }
+    // Superadmin is a hardcoded login (no operator row), so its passcode
+    // cannot be changed here — guide them out instead of silently failing.
+    if (isSuperadmin) {
+      toast.error("The Super-Admin passcode is fixed in this version and can't be changed here.");
+      return;
+    }
+    if (current !== currentUser?.passcode) {
+      toast.error("Current passcode is incorrect.");
+      return;
+    }
+    if (passcode !== confirmPasscode) {
+      toast.error("New passcode and confirm passcode do not match.");
+      return;
+    }
+    if (passcode.length < 4) {
+      toast.error("New passcode must be at least 4 characters long.");
+      return;
+    }
+    if (passcode === current) {
+      toast.error("New passcode must be different from the current one.");
+      return;
+    }
+
+    setBusy(true);
+    const ok = await changePassword(currentUser!.username, passcode);
+    setBusy(false);
+    if (ok) {
+      toast.success("Passcode updated successfully.");
+      onClose();
+    }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-6"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-[400px] rounded-2xl border border-slate-200 bg-white p-8 shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="mx-auto mb-5 flex h-12 w-12 items-center justify-center rounded-xl bg-blue-50 text-blue-600 border border-blue-100">
+          <Key size={22} />
+        </div>
+        <h2 className="text-center text-xl font-extrabold tracking-tight text-slate-900">
+          Change Password
+        </h2>
+        <p className="mt-2 text-center text-xs text-slate-500 leading-relaxed">
+          Update the passcode for <span className="font-bold text-slate-800">{currentUser?.name}</span>.
+        </p>
+
+        <form onSubmit={handleSubmit} className="mt-6 flex flex-col gap-4">
+          <div>
+            <label className="mb-2 block text-[10px] font-black tracking-wider text-slate-500 uppercase">
+              CURRENT PASSCODE
+            </label>
+            <input
+              type="password"
+              value={current}
+              onChange={(e) => setCurrent(e.target.value)}
+              placeholder="••••••••"
+              className="w-full rounded-lg border border-slate-200 bg-slate-50 py-3 px-3.5 text-sm text-slate-900 placeholder-slate-400 outline-none transition-all focus:border-blue-500 focus:ring-2 focus:ring-blue-100 font-mono"
+            />
+          </div>
+
+          <div>
+            <label className="mb-2 block text-[10px] font-black tracking-wider text-slate-500 uppercase">
+              NEW PASSCODE
+            </label>
+            <input
+              type="password"
+              value={passcode}
+              onChange={(e) => setPasscode(e.target.value)}
+              placeholder="e.g. 12345"
+              className="w-full rounded-lg border border-slate-200 bg-slate-50 py-3 px-3.5 text-sm text-slate-900 placeholder-slate-400 outline-none transition-all focus:border-blue-500 focus:ring-2 focus:ring-blue-100 font-mono"
+            />
+          </div>
+
+          <div>
+            <label className="mb-2 block text-[10px] font-black tracking-wider text-slate-500 uppercase">
+              CONFIRM NEW PASSCODE
+            </label>
+            <input
+              type="password"
+              value={confirmPasscode}
+              onChange={(e) => setConfirmPasscode(e.target.value)}
+              placeholder="e.g. 12345"
+              className="w-full rounded-lg border border-slate-200 bg-slate-50 py-3 px-3.5 text-sm text-slate-900 placeholder-slate-400 outline-none transition-all focus:border-blue-500 focus:ring-2 focus:ring-blue-100 font-mono"
+            />
+          </div>
+
+          <div className="mt-2 flex gap-3">
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex-1 rounded-lg border border-slate-200 bg-white py-3 text-sm font-bold text-slate-600 hover:bg-slate-50 transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={busy}
+              className="flex-1 rounded-lg bg-blue-600 py-3 text-sm font-bold text-white hover:bg-blue-500 transition-colors disabled:opacity-40"
+            >
+              {busy ? "Saving..." : "Update"}
+            </button>
+          </div>
         </form>
       </div>
     </div>
