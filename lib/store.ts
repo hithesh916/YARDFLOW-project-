@@ -76,6 +76,7 @@ interface Store {
     username: string;
     passcode: string;
     role: string;
+    tenantId?: string;
   }) => Promise<boolean>;
   deleteOperator: (id: string) => Promise<boolean>;
   updatePermissions: (role: string, allowedPaths: string[]) => Promise<boolean>;
@@ -207,6 +208,7 @@ export const useStore = create<Store>((set, get) => ({
         name: dynamicOp.name,
         allowedPaths,
         isFirstLogin: dynamicOp.isFirstLogin,
+        tenantId: dynamicOp.tenantId,
       };
 
       set({ currentUser: mappedUser });
@@ -253,6 +255,7 @@ export const useStore = create<Store>((set, get) => ({
                 currentUser: {
                   ...parsed,
                   allowedPaths,
+                  tenantId: freshOp.tenantId,
                 },
               });
             } else {
@@ -478,6 +481,7 @@ export const useStore = create<Store>((set, get) => ({
               nextSession = {
                 ...currentSession,
                 allowedPaths,
+                tenantId: freshOp.tenantId,
               };
             } else {
               // Session expired

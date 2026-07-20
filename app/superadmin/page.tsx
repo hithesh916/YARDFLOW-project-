@@ -1,6 +1,35 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
+
+function useSessionStorage<T>(key: string, initialValue: T) {
+  const [state, setState] = useState<T>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const saved = window.sessionStorage.getItem(key);
+        if (saved !== null) {
+          return JSON.parse(saved);
+        }
+      } catch (err) {
+        console.warn("Failed to read from sessionStorage", err);
+      }
+    }
+    return initialValue;
+  });
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      try {
+        window.sessionStorage.setItem(key, JSON.stringify(state));
+      } catch (err) {
+        console.warn("Failed to write to sessionStorage", err);
+      }
+    }
+  }, [key, state]);
+
+  return [state, setState] as const;
+}
+
 import {
   ShieldCheck,
   Database,
@@ -43,26 +72,26 @@ export default function SuperAdminHub() {
   const deleteTenant = useStore((s) => s.deleteTenant);
   const updateTenantConfig = useStore((s) => s.updateTenantConfig);
 
-  const [activeTab, setActiveTab] = useState<"tenants" | "registry" | "backend">("tenants");
-  const [search, setSearch] = useState("");
-  const [filterPlan, setFilterPlan] = useState<string>("All Plans");
-  const [filterStatus, setFilterStatus] = useState<string>("All Statuses");
+  const [activeTab, setActiveTab] = useSessionStorage<"tenants" | "registry" | "backend">("superadmin_activeTab", "tenants");
+  const [search, setSearch] = useSessionStorage("superadmin_search", "");
+  const [filterPlan, setFilterPlan] = useSessionStorage<string>("superadmin_filterPlan", "All Plans");
+  const [filterStatus, setFilterStatus] = useSessionStorage<string>("superadmin_filterStatus", "All Statuses");
 
   // Onboarding form state
-  const [name, setName] = useState("");
-  const [domain, setDomain] = useState("");
-  const [plan, setPlan] = useState<"Enterprise Plan" | "Professional Plan" | "Basic Plan">("Enterprise Plan");
-  const [seats, setSeats] = useState(5);
-  const [modules, setModules] = useState<string[]>(["dashboard", "entry", "billing", "loading", "exit", "reports"]);
-  const [adminUsername, setAdminUsername] = useState("");
-  const [adminPassword, setAdminPassword] = useState("");
+  const [name, setName] = useSessionStorage("superadmin_name", "");
+  const [domain, setDomain] = useSessionStorage("superadmin_domain", "");
+  const [plan, setPlan] = useSessionStorage<"Enterprise Plan" | "Professional Plan" | "Basic Plan">("superadmin_plan", "Enterprise Plan");
+  const [seats, setSeats] = useSessionStorage("superadmin_seats", 5);
+  const [modules, setModules] = useSessionStorage<string[]>("superadmin_modules", ["dashboard", "entry", "billing", "loading", "exit", "reports"]);
+  const [adminUsername, setAdminUsername] = useSessionStorage("superadmin_adminUsername", "");
+  const [adminPassword, setAdminPassword] = useSessionStorage("superadmin_adminPassword", "");
   const [busy, setBusy] = useState(false);
-  const [openOnboard, setOpenOnboard] = useState(false);
+  const [openOnboard, setOpenOnboard] = useSessionStorage("superadmin_openOnboard", false);
   const [successCreds, setSuccessCreds] = useState<{username: string, password: string, domain: string} | null>(null);
 
-  const [editTenantId, setEditTenantId] = useState<string | null>(null);
-  const [editSeats, setEditSeats] = useState(5);
-  const [editModules, setEditModules] = useState<string[]>([]);
+  const [editTenantId, setEditTenantId] = useSessionStorage<string | null>("superadmin_editTenantId", null);
+  const [editSeats, setEditSeats] = useSessionStorage("superadmin_editSeats", 5);
+  const [editModules, setEditModules] = useSessionStorage<string[]>("superadmin_editModules", []);
 
   const AVAILABLE_MODULES = [
     { id: "dashboard", label: "Dashboard" },
@@ -124,7 +153,17 @@ export default function SuperAdminHub() {
       setModules(["dashboard", "entry", "billing", "loading", "exit", "reports"]);
       setAdminUsername("");
       setAdminPassword("");
+      setPlan("Enterprise Plan");
       setOpenOnboard(false);
+
+      window.sessionStorage.removeItem("superadmin_name");
+      window.sessionStorage.removeItem("superadmin_domain");
+      window.sessionStorage.removeItem("superadmin_seats");
+      window.sessionStorage.removeItem("superadmin_modules");
+      window.sessionStorage.removeItem("superadmin_adminUsername");
+      window.sessionStorage.removeItem("superadmin_adminPassword");
+      window.sessionStorage.removeItem("superadmin_plan");
+      window.sessionStorage.removeItem("superadmin_openOnboard");
     }
   }
 
@@ -134,7 +173,12 @@ export default function SuperAdminHub() {
     setBusy(true);
     const ok = await updateTenantConfig(editTenantId, editSeats, editModules);
     setBusy(false);
-    if (ok) setEditTenantId(null);
+    if (ok) {
+      setEditTenantId(null);
+      window.sessionStorage.removeItem("superadmin_editTenantId");
+      window.sessionStorage.removeItem("superadmin_editSeats");
+      window.sessionStorage.removeItem("superadmin_editModules");
+    }
   }
 
   async function handleExtend(id: string) {

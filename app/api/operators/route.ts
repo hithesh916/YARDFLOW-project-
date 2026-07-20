@@ -4,14 +4,14 @@ import { createOperator, deleteOperator, changeOperatorPassword } from "@/lib/db
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const { action, name, username, passcode, role, id } = body;
+    const { action, name, username, passcode, role, id, tenantId } = body;
 
     let state;
     if (action === "create") {
       if (!name || !username || !passcode || !role) {
         return NextResponse.json({ error: "Missing fields" }, { status: 400 });
       }
-      state = await createOperator({ name, username, passcode, role });
+      state = await createOperator({ name, username, passcode, role, tenantId });
     } else if (action === "delete") {
       if (!id) {
         return NextResponse.json({ error: "Missing operator ID" }, { status: 400 });

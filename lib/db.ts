@@ -614,11 +614,19 @@ export async function createOperator(input: {
   username: string;
   passcode: string;
   role: string;
+  tenantId?: string;
 }): Promise<YardState> {
   return mutate((l, log) => {
     l.operators = l.operators || [];
-    const seatLimit = l.tenants?.[0]?.seats || 5;
-    if (l.operators.length >= seatLimit) {
+    
+    const tenant = input.tenantId ? l.tenants.find(t => t.id === input.tenantId) : l.tenants?.[0];
+    const seatLimit = tenant?.seats || 5;
+    
+    const tenantOperators = l.operators.filter(o => 
+      o.tenantId === input.tenantId || (!o.tenantId && (!input.tenantId || input.tenantId === l.tenants?.[0]?.id))
+    );
+
+    if (tenantOperators.length >= seatLimit) {
       throw new Error(`Operator seat limit reached (${seatLimit}). Upgrade your license.`);
     }
 
@@ -628,6 +636,7 @@ export async function createOperator(input: {
       username: input.username.trim().toLowerCase(),
       passcode: input.passcode,
       role: input.role,
+      tenantId: input.tenantId,
       isFirstLogin: true,
     };
     if (!l.operators.some((o) => o.username === newOp.username)) {

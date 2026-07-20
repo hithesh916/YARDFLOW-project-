@@ -1,6 +1,35 @@
 "use client";
 
 import { useEffect, useState } from "react";
+
+function useSessionStorage<T>(key: string, initialValue: T) {
+  const [state, setState] = useState<T>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const saved = window.sessionStorage.getItem(key);
+        if (saved !== null) {
+          return JSON.parse(saved);
+        }
+      } catch (err) {
+        console.warn("Failed to read from sessionStorage", err);
+      }
+    }
+    return initialValue;
+  });
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      try {
+        window.sessionStorage.setItem(key, JSON.stringify(state));
+      } catch (err) {
+        console.warn("Failed to write to sessionStorage", err);
+      }
+    }
+  }, [key, state]);
+
+  return [state, setState] as const;
+}
+
 import {
   Users,
   Grid,
@@ -57,42 +86,48 @@ export default function AdminPage() {
     ? tenants.find(t => t.id === currentUser.tenantId) 
     : tenants[0];
 
-  const [activeTab, setActiveTab] = useState<"company" | "users" | "modules" | "license" | "reports">("company");
+  const tenantOperators = operators.filter(o => 
+    o.tenantId === currentTenant?.id || (!o.tenantId && currentTenant?.id === tenants[0]?.id)
+  );
+
+  const [activeTab, setActiveTab] = useSessionStorage<"company" | "users" | "modules" | "license" | "reports">("admin_activeTab", "company");
 
   // Terminal Settings
-  const [companyName, setCompanyName] = useState(settings?.companyName || "");
-  const [companyAddress, setCompanyAddress] = useState(settings?.companyAddress || "");
-  const [companyContact, setCompanyContact] = useState(settings?.companyContact || "");
-  const [logoUrl, setLogoUrl] = useState(settings?.logoUrl || "");
+  const [companyName, setCompanyName] = useSessionStorage("admin_companyName", "");
+  const [companyAddress, setCompanyAddress] = useSessionStorage("admin_companyAddress", "");
+  const [companyContact, setCompanyContact] = useSessionStorage("admin_companyContact", "");
+  const [logoUrl, setLogoUrl] = useState("");
   const [busy, setBusy] = useState(false);
 
   // User Management
-  const [opName, setOpName] = useState("");
-  const [opUsername, setOpUsername] = useState("");
-  const [opPasscode, setOpPasscode] = useState("");
-  const [opRole, setOpRole] = useState("Gate Operator");
+  const [opName, setOpName] = useSessionStorage("admin_opName", "");
+  const [opUsername, setOpUsername] = useSessionStorage("admin_opUsername", "");
+  const [opPasscode, setOpPasscode] = useSessionStorage("admin_opPasscode", "");
+  const [opRole, setOpRole] = useSessionStorage("admin_opRole", "Gate Operator");
 
   // Module Customization
-  const [enableQrCode, setEnableQrCode] = useState(settings?.formCustomization?.enableQrCode ?? true);
-  const [boeLabel, setBoeLabel] = useState(settings?.formCustomization?.renameFields?.boe || "BOE Number");
-  const [remarksOptional, setRemarksOptional] = useState(settings?.formCustomization?.optionalFields?.includes("remarks") ?? true);
+  const [enableQrCode, setEnableQrCode] = useSessionStorage("admin_enableQrCode", true);
+  const [boeLabel, setBoeLabel] = useSessionStorage("admin_boeLabel", "BOE Number");
+  const [remarksOptional, setRemarksOptional] = useSessionStorage("admin_remarksOptional", true);
 
   // Reports
-  const [startDate, setStartDate] = useState("");
-  const [endDate, setEndDate] = useState("");
-  const [repModules, setRepModules] = useState<string[]>(["Entry", "Billing", "Loading", "Exit"]);
+  const [startDate, setStartDate] = useSessionStorage("admin_startDate", "");
+  const [endDate, setEndDate] = useSessionStorage("admin_endDate", "");
+  const [repModules, setRepModules] = useSessionStorage<string[]>("admin_repModules", ["Entry", "Billing", "Loading", "Exit"]);
+
+  const [settingsLoaded, setSettingsLoaded] = useSessionStorage("admin_settingsLoaded", false);
 
   useEffect(() => {
-    if (settings) {
+    if (settings && !settingsLoaded) {
       setCompanyName(settings.companyName || "");
       setCompanyAddress(settings.companyAddress || "");
       setCompanyContact(settings.companyContact || "");
-      setLogoUrl(settings.logoUrl || "");
       setEnableQrCode(settings.formCustomization?.enableQrCode ?? true);
       setBoeLabel(settings.formCustomization?.renameFields?.boe || "BOE Number");
       setRemarksOptional(settings.formCustomization?.optionalFields?.includes("remarks") ?? true);
+      setSettingsLoaded(true);
     }
-  }, [settings]);
+  }, [settings, settingsLoaded]);
 
   async function handleSaveCompany() {
     setBusy(true);
@@ -100,10 +135,15 @@ export default function AdminPage() {
       companyName: companyName.trim(),
       companyAddress: companyAddress.trim(),
       companyContact: companyContact.trim(),
-      logoUrl: logoUrl.trim(),
+      logoUrl: logoUrl ? logoUrl.trim() : (settings?.logoUrl || ""),
     });
     setBusy(false);
-    if (ok) toast.success("Company Information saved.");
+    if (ok) {
+      toast.success("Company Information saved.");
+      // Do not remove from session storage so it persists when navigating back
+      setLogoUrl("");
+      setSettingsLoaded(false);
+    }
   }
 
   async function handleSaveModules() {
@@ -119,7 +159,11 @@ export default function AdminPage() {
       }
     });
     setBusy(false);
-    if (ok) toast.success("Module Configuration saved.");
+    if (ok) {
+      toast.success("Module Configuration saved.");
+      // Do not remove from session storage so it persists when navigating back
+      setSettingsLoaded(false);
+    }
   }
 
   async function handleAddOperator(e: React.FormEvent) {
@@ -134,12 +178,18 @@ export default function AdminPage() {
       username: opUsername.trim(),
       passcode: opPasscode,
       role: opRole,
+      tenantId: currentTenant?.id,
     });
     setBusy(false);
     if (ok) {
       setOpName("");
       setOpUsername("");
       setOpPasscode("");
+      setOpRole("Gate Operator");
+      window.sessionStorage.removeItem("admin_opName");
+      window.sessionStorage.removeItem("admin_opUsername");
+      window.sessionStorage.removeItem("admin_opPasscode");
+      window.sessionStorage.removeItem("admin_opRole");
       toast.success("User registered successfully.");
     }
   }
@@ -249,7 +299,7 @@ export default function AdminPage() {
                 }}
                 className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-2 text-sm"
               />
-              {logoUrl && <img src={logoUrl} alt="Logo Preview" className="h-12 mt-2 object-contain" />}
+              {(logoUrl || settings?.logoUrl) && <img src={logoUrl || settings?.logoUrl} alt="Logo Preview" className="h-12 mt-2 object-contain" />}
             </div>
             <div>
               <label className="mb-1 block text-xs font-bold text-slate-600">COMPANY ADDRESS</label>
@@ -298,11 +348,11 @@ export default function AdminPage() {
                   </span>
                 </p>
               </div>
-              {currentTenant && operators.length >= currentTenant.seats && (
+              {currentTenant && tenantOperators.length >= currentTenant.seats && (
                 <div className="text-xs text-red-500 font-bold mt-2">Seat limit reached ({currentTenant.seats}).</div>
               )}
               <div className="mt-2">
-                <button type="submit" disabled={busy || (currentTenant && operators.length >= currentTenant.seats) as boolean} className="rounded-lg bg-blue-600 px-6 py-2.5 text-xs font-bold text-white hover:bg-blue-700 disabled:opacity-50">
+                <button type="submit" disabled={busy || (currentTenant && tenantOperators.length >= currentTenant.seats) as boolean} className="rounded-lg bg-blue-600 px-6 py-2.5 text-xs font-bold text-white hover:bg-blue-700 disabled:opacity-50">
                   Save User
                 </button>
               </div>
@@ -310,9 +360,9 @@ export default function AdminPage() {
           </Panel>
 
           <Panel className="p-8 bg-white shadow-sm h-fit">
-            <h3 className="mb-6 text-base font-extrabold text-slate-800">Current Users ({operators.length} / {currentTenant?.seats || '∞'})</h3>
+            <h3 className="mb-6 text-base font-extrabold text-slate-800">Current Users ({tenantOperators.length} / {currentTenant?.seats || '∞'})</h3>
             <div className="flex flex-col gap-3">
-              {operators.map((op) => (
+              {tenantOperators.map((op) => (
                 <div key={op.id} className="flex items-center justify-between border-b border-slate-100 pb-3 last:border-0 last:pb-0">
                   <div>
                     <h4 className="text-sm font-bold text-slate-800">{op.name}</h4>
@@ -397,7 +447,7 @@ export default function AdminPage() {
                 </div>
                 <div className="border border-slate-100 rounded-lg p-4">
                   <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Operator Seats</p>
-                  <p className="text-sm font-bold text-slate-800">{operators.length} used of {currentTenant.seats} allowed</p>
+                  <p className="text-sm font-bold text-slate-800">{tenantOperators.length} used of {currentTenant.seats} allowed</p>
                 </div>
                 <div className="border border-slate-100 rounded-lg p-4 col-span-2 bg-slate-50">
                   <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">License Key</p>
