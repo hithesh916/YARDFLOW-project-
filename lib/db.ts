@@ -358,6 +358,15 @@ export function completeLoading(
     const t = find(l, id);
     if (t && (t.status === "awaiting_loading" || t.status === "awaiting_billing")) {
       if (l.counters.loadingSerial === undefined) l.counters.loadingSerial = 0;
+      // Guard against counter reset on serverless cold starts
+      const tz = l.settings?.timezone || "Asia/Kolkata";
+      const todayStr = getTodayString(tz);
+      const maxExistingLoading = l.tickets
+        .filter((tk) => tk.loadingSerial != null && getTodayString(tz, tk.loadingEnd || tk.entryTime) === todayStr)
+        .reduce((max, tk) => Math.max(max, tk.loadingSerial!), 0);
+      if (l.counters.loadingSerial < maxExistingLoading) {
+        l.counters.loadingSerial = maxExistingLoading;
+      }
       l.counters.loadingSerial += 1;
       t.loadingSerial = l.counters.loadingSerial;
       t.status = "awaiting_exit";
@@ -376,6 +385,7 @@ export function completeLoading(
     }
   });
 }
+
 
 export function skipLoading(id: string): Promise<YardState> {
   return mutate((l, log) => {
@@ -404,6 +414,16 @@ export function completeBilling(
     const t = find(l, id);
     if (t && t.status === "awaiting_billing") {
       if (l.counters.billingSerial === undefined) l.counters.billingSerial = 0;
+      // Guard against counter reset on serverless cold starts:
+      // derive the true max from already-assigned billingSerial values on today's tickets
+      const tz = l.settings?.timezone || "Asia/Kolkata";
+      const todayStr = getTodayString(tz);
+      const maxExisting = l.tickets
+        .filter((tk) => tk.billingSerial != null && getTodayString(tz, tk.billingTime || tk.entryTime) === todayStr)
+        .reduce((max, tk) => Math.max(max, tk.billingSerial!), 0);
+      if (l.counters.billingSerial < maxExisting) {
+        l.counters.billingSerial = maxExisting;
+      }
       l.counters.billingSerial += 1;
       t.billingSerial = l.counters.billingSerial;
       t.status = "awaiting_loading";
