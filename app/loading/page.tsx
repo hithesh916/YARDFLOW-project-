@@ -10,7 +10,7 @@ import { fmtTime, fmtDate, pad, getLocalDateString } from "@/lib/format";
 import { printLoadingToken, printLoadingTokens } from "@/lib/print-token";
 import type { Ticket } from "@/lib/types";
 import { QrCode } from "@/components/qr-code";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion, AnimatePresence } from "motion/react";
 
 export default function LoadingPage() {
   const tickets = useStore((s) => s.tickets);

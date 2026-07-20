@@ -22,6 +22,10 @@ import {
   Sun,
   Moon,
   Key,
+  Briefcase,
+  SlidersHorizontal,
+  FileDown,
+  ChevronDown,
   type LucideIcon,
 } from "lucide-react";
 import { useTheme } from "next-themes";
@@ -36,6 +40,11 @@ import { fmtClock, fmtDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { Login } from "@/components/login";
 import { Panel } from "@/components/panel";
+import {
+  LicenseInfoModal,
+  ModuleCustomizationModal,
+  GenerateReportsModal,
+} from "@/components/profile-modals";
 import pkg from "../package.json";
 
 interface NavItem {
@@ -137,7 +146,13 @@ const ROLE_PRIMARY_PATHS: Record<string, string> = {
   "Security Guard": "/exit",
 };
 
-export function AppShell({ children }: { children: React.ReactNode }) {
+export function AppShell({
+  children,
+  dbConfigured = false,
+}: {
+  children: React.ReactNode;
+  dbConfigured?: boolean;
+}) {
   const pathname = usePathname();
   const router = useRouter();
   
@@ -153,15 +168,28 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const currentUser = useStore((s) => s.currentUser);
   const logout = useStore((s) => s.logout);
 
-  const currentTenant = currentUser?.tenantId 
+  const currentTenant = currentUser?.tenantId
     ? tenants.find(t => t.id === currentUser.tenantId)
     : null;
+
+  // License gate: a tenant whose subscription is suspended/expired (by status or by
+  // the expiry date having passed) is locked out of the whole portal — their data is
+  // untouched in the database and access returns the moment the super-admin renews.
+  // Super-admin (no tenantId) and the built-in demo accounts are never gated.
+  const todayStr = new Date().toLocaleDateString("en-CA"); // YYYY-MM-DD
+  const licenseBlocked =
+    !!currentTenant &&
+    currentUser?.role !== "superadmin" &&
+    (currentTenant.status !== "Active" || currentTenant.expiryDate < todayStr);
 
   const unacked = alerts.filter((a) => !a.acknowledged).length;
   const [now, setNow] = useState<Date | null>(null);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [hasRedirected, setHasRedirected] = useState(false);
   const [changePwOpen, setChangePwOpen] = useState(false);
+  const [licenseOpen, setLicenseOpen] = useState(false);
+  const [modulesOpen, setModulesOpen] = useState(false);
+  const [reportsOpen, setReportsOpen] = useState(false);
 
   useEffect(() => {
     hydrate().then(() => startPolling());
@@ -217,6 +245,47 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     return <Login />;
   }
 
+  // License expired / suspended → lock the whole portal (data stays safe in the DB)
+  if (ready && licenseBlocked && currentTenant) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-50 p-6">
+        <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-xl">
+          <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-full bg-rose-50 text-rose-500">
+            <Ban size={30} />
+          </div>
+          <h2 className="text-xl font-black tracking-tight text-slate-900">
+            License {currentTenant.status === "Suspended" ? "Suspended" : "Expired"}
+          </h2>
+          <p className="mt-2 text-sm leading-relaxed text-slate-500">
+            The subscription for <span className="font-bold text-slate-800">{currentTenant.name}</span> is
+            no longer active, so access to the portal is paused.
+          </p>
+          <div className="mt-5 rounded-xl border border-slate-100 bg-slate-50/70 p-4 text-left text-xs">
+            <div className="flex justify-between border-b border-slate-100 pb-2">
+              <span className="font-bold uppercase tracking-wider text-slate-400">Status</span>
+              <span className="font-extrabold text-rose-600">{currentTenant.status}</span>
+            </div>
+            <div className="flex justify-between pt-2">
+              <span className="font-bold uppercase tracking-wider text-slate-400">Valid Until</span>
+              <span className="font-extrabold text-slate-700">{currentTenant.expiryDate}</span>
+            </div>
+          </div>
+          <p className="mt-5 text-xs leading-relaxed text-slate-400">
+            Your data is fully retained. To restore access and downloads, please contact your
+            provider to renew the license.
+          </p>
+          <button
+            onClick={() => logout()}
+            className="mt-6 flex w-full items-center justify-center gap-2 rounded-lg bg-slate-800 px-4 py-3 text-sm font-bold text-white transition-colors hover:bg-slate-900"
+          >
+            <LogOut size={16} /> Sign Out
+          </button>
+          <p className="mt-4 text-[10px] text-slate-400">Product by Cubiqlab Technologies</p>
+        </div>
+      </div>
+    );
+  }
+
   // Filter navigation links according to current user's permissions (Dashboard is always visible)
   const allowedPrimary = PRIMARY.filter((item) => {
     const isAllowedByRole = item.href === "/" || (currentUser?.allowedPaths.includes(item.href) ?? false);
@@ -248,6 +317,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       {changePwOpen && (
         <ChangePasswordDialog onClose={() => setChangePwOpen(false)} />
       )}
+      <LicenseInfoModal isOpen={licenseOpen} onClose={() => setLicenseOpen(false)} />
+      <ModuleCustomizationModal isOpen={modulesOpen} onClose={() => setModulesOpen(false)} />
+      <GenerateReportsModal isOpen={reportsOpen} onClose={() => setReportsOpen(false)} />
       {/* Desktop Sidebar (hidden on mobile/tablet) */}
       <aside className="hidden lg:flex sticky top-0 h-screen w-[260px] shrink-0 flex-col border-r border-slate-200 bg-white">
         <div className="px-6 pb-5 pt-6">
@@ -290,15 +362,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 active={pathname === item.href}
               />
             ))}
-            
-            {/* Change Password Button in Sidebar */}
-            <button
-              onClick={() => setChangePwOpen(true)}
-              className="flex w-full items-center gap-3 rounded-lg px-4 py-2.5 text-sm font-semibold text-slate-600 transition-colors hover:bg-slate-50 hover:text-slate-900 text-left outline-none mt-1"
-            >
-              <Key size={18} className="shrink-0" />
-              Change Password
-            </button>
 
             {/* Sign Out Button in Sidebar */}
             <button
@@ -377,17 +440,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     />
                   </div>
                 ))}
-                
-                <button
-                  onClick={() => {
-                    setMobileOpen(false);
-                    setChangePwOpen(true);
-                  }}
-                  className="flex w-full items-center gap-3 rounded-lg px-4 py-2.5 text-sm font-semibold text-slate-600 transition-colors hover:bg-slate-50 hover:text-slate-900 text-left outline-none mt-1"
-                >
-                  <Key size={18} className="shrink-0" />
-                  Change Password
-                </button>
 
                 <button
                   onClick={() => {
@@ -477,18 +529,75 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <div className="font-mono">{now ? fmtClock(now) : " "}</div>
             </div>
 
-            {/* Profile badge with Name and Role */}
-            <div className="flex items-center gap-3">
-              <div className="hidden sm:block text-right text-xs leading-none">
-                <div className="font-extrabold text-slate-800">{currentUser?.name}</div>
-                <div className="text-[9px] font-bold text-slate-400 uppercase tracking-wider mt-1">
-                  {currentUser?.role}
+            {/* Profile badge with Name and Role — click to open account menu */}
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                render={
+                  <button
+                    className="flex items-center gap-3 outline-none rounded-lg transition-colors hover:bg-slate-100/60 px-1.5 py-1 -mx-1"
+                    aria-label="Account menu"
+                  >
+                    <div className="hidden sm:block text-right text-xs leading-none">
+                      <div className="font-extrabold text-slate-800">{currentUser?.name}</div>
+                      <div className="text-[9px] font-bold text-slate-400 uppercase tracking-wider mt-1">
+                        {currentUser?.role}
+                      </div>
+                    </div>
+                    <div className="flex h-8 w-8 sm:h-9 sm:w-9 items-center justify-center rounded-full bg-blue-600 text-xs font-black text-white shrink-0">
+                      {initials}
+                    </div>
+                    <ChevronDown size={15} className="text-slate-400 hidden sm:block" />
+                  </button>
+                }
+              />
+              <DropdownMenuContent align="end" className="w-60 p-1.5">
+                <div className="px-3 py-2 border-b border-slate-100 mb-1">
+                  <div className="text-sm font-bold text-slate-800 truncate">{currentUser?.name}</div>
+                  <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mt-0.5">
+                    {currentUser?.role}
+                  </div>
                 </div>
-              </div>
-              <div className="flex h-8 w-8 sm:h-9 sm:w-9 items-center justify-center rounded-full bg-blue-600 text-xs font-black text-white shrink-0">
-                {initials}
-              </div>
-            </div>
+
+                <button
+                  onClick={() => setLicenseOpen(true)}
+                  className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-semibold text-slate-600 transition-colors hover:bg-slate-50 hover:text-slate-900 text-left outline-none"
+                >
+                  <Briefcase size={16} className="shrink-0 text-slate-400" />
+                  License Information
+                </button>
+                <button
+                  onClick={() => setModulesOpen(true)}
+                  className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-semibold text-slate-600 transition-colors hover:bg-slate-50 hover:text-slate-900 text-left outline-none"
+                >
+                  <SlidersHorizontal size={16} className="shrink-0 text-slate-400" />
+                  Module Customization
+                </button>
+                <button
+                  onClick={() => setReportsOpen(true)}
+                  className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-semibold text-slate-600 transition-colors hover:bg-slate-50 hover:text-slate-900 text-left outline-none"
+                >
+                  <FileDown size={16} className="shrink-0 text-slate-400" />
+                  Generate Custom Reports
+                </button>
+
+                <div className="my-1 h-px bg-slate-100" />
+
+                <button
+                  onClick={() => setChangePwOpen(true)}
+                  className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-semibold text-slate-600 transition-colors hover:bg-slate-50 hover:text-slate-900 text-left outline-none"
+                >
+                  <Key size={16} className="shrink-0 text-slate-400" />
+                  Change Password
+                </button>
+                <button
+                  onClick={() => logout()}
+                  className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-semibold text-rose-600 transition-colors hover:bg-rose-50 hover:text-rose-700 text-left outline-none"
+                >
+                  <LogOut size={16} className="shrink-0" />
+                  Sign Out
+                </button>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </header>
 
@@ -519,13 +628,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </Panel>
           ) : (
             <>
-              {/* Demo Mode Notice */}
-              <div className="flex items-start gap-3 rounded-xl bg-amber-50 p-4 border border-amber-200 text-[13px] leading-relaxed text-amber-800 shadow-sm print:hidden">
-                <ShieldAlert size={18} className="mt-0.5 shrink-0 text-amber-700" />
-                <div>
-                  <strong>Demo mode:</strong> operations are saved in a local file database on this server. Connect the secured production database and API layer before using this at a live gate.
+              {/* Demo Mode Notice — only shown when no production database is
+                  configured (DATABASE_URL unset). Once the DB is wired up this
+                  banner disappears automatically. */}
+              {!dbConfigured && (
+                <div className="flex items-start gap-3 rounded-xl bg-amber-50 p-4 border border-amber-200 text-[13px] leading-relaxed text-amber-800 shadow-sm print:hidden">
+                  <ShieldAlert size={18} className="mt-0.5 shrink-0 text-amber-700" />
+                  <div>
+                    <strong>Demo mode:</strong> no production database is connected, so operations are stored in a temporary local file that resets on restart. Set <code className="font-mono">DATABASE_URL</code> to a secured database before using this at a live gate.
+                  </div>
                 </div>
-              </div>
+              )}
               {children}
             </>
           )}

@@ -30,6 +30,9 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  // Server-side truth: is the production database wired up? (env var is
+  // server-only, so we resolve it here and hand a boolean to the client shell.)
+  const dbConfigured = Boolean(process.env.DATABASE_URL);
   return (
     <html
       lang="en"
@@ -39,7 +42,7 @@ export default function RootLayout({
       <body className="min-h-full">
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
           <TooltipProvider>
-            <AppShell>{children}</AppShell>
+            <AppShell dbConfigured={dbConfigured}>{children}</AppShell>
           </TooltipProvider>
           <Toaster position="bottom-right" richColors closeButton />
         </ThemeProvider>

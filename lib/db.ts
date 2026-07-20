@@ -3,10 +3,13 @@
 // signature and return shape it had in the file-store version, so the 9 API
 // routes and the client store are unaffected.
 //
-// Operational data (tickets, alerts, activity, counters, settings) lives under a
-// single default workspace (DEFAULT_TENANT). tenants/operators/permissions are
-// global (managed by the superadmin), exactly as before. Per-tenant isolation is
-// a future query-filter change — the schema already carries tenantId.
+// Operational data (tickets, alerts, activity, counters, settings) is isolated
+// PER TENANT: each onboarded company gets its own dataset, keyed by tenantId.
+// The caller's tenantId is threaded in from the API layer (x-tenant-id header);
+// seeded demo accounts and the superadmin (no tenantId) fall back to the shared
+// DEFAULT_TENANT workspace. tenants/operators/permissions remain global (managed
+// by the superadmin). NOTE: this is functional isolation, not a security
+// boundary — the header is client-supplied. Server-enforced sessions are Phase 3.
 
 import prisma from "./prisma";
 import { buildSeed, pick, BAYS, CARGO } from "./seed";
@@ -23,10 +26,17 @@ import type {
   YardState,
 } from "./types";
 
-// All operational data lives under this workspace for now. Phase 3 swaps this
-// for the authenticated user's tenantId.
+// The shared fallback workspace. Callers with no tenantId (seeded demo accounts,
+// the superadmin) operate here; each onboarded company operates under its own id.
 const DEFAULT_TENANT = "default";
 const ACTIVITY_LIMIT = 500;
+
+// Resolve a caller-supplied tenantId to the workspace its data lives in, falling
+// back to the shared default workspace when none is provided.
+function tenantOf(tenantId?: string | null): string {
+  const t = tenantId?.trim();
+  return t ? t : DEFAULT_TENANT;
+}
 
 const DEFAULT_SETTINGS: SystemSettings = {
   terminalName: "",
@@ -223,36 +233,67 @@ async function ensureSeeded() {
   seedChecked = true;
 }
 
-// Lazy midnight reset, keyed on the tenant timezone — same semantics as the old
-// checkAndTriggerDailyReset: wipe tickets/alerts and zero the three daily serials
-// (boe is preserved) when the day rolls over.
-async function checkDailyReset() {
+// Ensure a freshly onboarded tenant has the rows its dataset needs: its own
+// Settings + Counter (empty tickets/alerts/activity are implicit). Idempotent,
+// and cached per-instance so it costs at most one lookup per tenant per process.
+const provisionedTenants = new Set<string>();
+async function ensureTenantWorkspace(tenantId: string) {
+  if (tenantId === DEFAULT_TENANT || provisionedTenants.has(tenantId)) return;
+  const existing = await prisma.settings.findUnique({ where: { tenantId } });
+  if (!existing) {
+    const seed = buildSeed();
+    const tz = seed.settings?.timezone || "Asia/Kolkata";
+    try {
+      await prisma.$transaction([
+        prisma.settings.upsert({
+          where: { tenantId },
+          update: {},
+          create: { tenantId, ...seed.settings },
+        }),
+        prisma.counter.upsert({
+          where: { tenantId },
+          update: {},
+          create: { tenantId, ...seed.counters, lastResetDate: getTodayString(tz) },
+        }),
+      ]);
+    } catch (e) {
+      // A concurrent request may have provisioned it already — that's fine.
+      console.warn("ensureTenantWorkspace skipped (likely already provisioned):", e);
+    }
+  }
+  provisionedTenants.add(tenantId);
+}
+
+// Lazy midnight reset for a single tenant, keyed on its timezone — same semantics
+// as the old checkAndTriggerDailyReset: wipe that tenant's tickets/alerts and zero
+// its three daily serials (boe is preserved) when the day rolls over.
+async function checkDailyReset(tenantId: string = DEFAULT_TENANT) {
   const [counter, settings] = await Promise.all([
-    prisma.counter.findUnique({ where: { tenantId: DEFAULT_TENANT } }),
-    prisma.settings.findUnique({ where: { tenantId: DEFAULT_TENANT } }),
+    prisma.counter.findUnique({ where: { tenantId } }),
+    prisma.settings.findUnique({ where: { tenantId } }),
   ]);
   if (!counter) return;
   const tz = settings?.timezone || "Asia/Kolkata";
   const todayStr = getTodayString(tz);
 
   if (!counter.lastResetDate) {
-    await prisma.counter.update({ where: { tenantId: DEFAULT_TENANT }, data: { lastResetDate: todayStr } });
+    await prisma.counter.update({ where: { tenantId }, data: { lastResetDate: todayStr } });
     return;
   }
 
   if (counter.lastResetDate !== todayStr) {
-    console.log(`[DAILY RESET] Resetting yard data for new day: ${todayStr} (last: ${counter.lastResetDate})`);
+    console.log(`[DAILY RESET] Resetting yard data for ${tenantId}, new day: ${todayStr} (last: ${counter.lastResetDate})`);
     await prisma.$transaction([
-      prisma.ticket.deleteMany({ where: { tenantId: DEFAULT_TENANT } }),
-      prisma.alert.deleteMany({ where: { tenantId: DEFAULT_TENANT } }),
+      prisma.ticket.deleteMany({ where: { tenantId } }),
+      prisma.alert.deleteMany({ where: { tenantId } }),
       prisma.counter.update({
-        where: { tenantId: DEFAULT_TENANT },
+        where: { tenantId },
         data: { serial: 0, billingSerial: 0, loadingSerial: 0, lastResetDate: todayStr },
       }),
       prisma.activityEntry.create({
         data: {
           id: rid(),
-          tenantId: DEFAULT_TENANT,
+          tenantId,
           at: new Date().toISOString(),
           action: "reset",
           detail: `Automatic daily reset at midnight (${todayStr})`,
@@ -262,19 +303,24 @@ async function checkDailyReset() {
   }
 }
 
-// Run before every read/write, matching the old readLedger side effects.
-async function prep() {
+// Run before every read/write, matching the old readLedger side effects. The
+// global demo seed always runs; per-tenant workspaces are provisioned lazily.
+async function prep(tenantId: string = DEFAULT_TENANT) {
   await ensureSeeded();
-  await checkDailyReset();
+  await ensureTenantWorkspace(tenantId);
+  await checkDailyReset(tenantId);
 }
 
 /* ---------- state assembly ---------- */
-async function buildState(): Promise<YardState> {
+// Assemble the client snapshot for one workspace. Operational data (tickets/
+// alerts/activity/settings) is scoped to `tenantId`; tenants/operators/permissions
+// stay global (the superadmin manages them across all companies).
+async function buildState(tenantId: string = DEFAULT_TENANT): Promise<YardState> {
   const [tickets, alerts, activity, settingsRow, tenants, operators, permissions] = await Promise.all([
-    prisma.ticket.findMany({ where: { tenantId: DEFAULT_TENANT }, orderBy: [{ queuePos: "asc" }, { createdAt: "asc" }] }),
-    prisma.alert.findMany({ where: { tenantId: DEFAULT_TENANT }, orderBy: { id: "asc" } }),
-    prisma.activityEntry.findMany({ where: { tenantId: DEFAULT_TENANT }, orderBy: { at: "desc" }, take: ACTIVITY_LIMIT }),
-    prisma.settings.findUnique({ where: { tenantId: DEFAULT_TENANT } }),
+    prisma.ticket.findMany({ where: { tenantId }, orderBy: [{ queuePos: "asc" }, { createdAt: "asc" }] }),
+    prisma.alert.findMany({ where: { tenantId }, orderBy: { id: "asc" } }),
+    prisma.activityEntry.findMany({ where: { tenantId }, orderBy: { at: "desc" }, take: ACTIVITY_LIMIT }),
+    prisma.settings.findUnique({ where: { tenantId } }),
     prisma.tenant.findMany({ orderBy: { createdAt: "asc" } }),
     prisma.operator.findMany({ orderBy: { id: "asc" } }),
     prisma.rolePermission.findMany(),
@@ -293,15 +339,16 @@ async function buildState(): Promise<YardState> {
 // Interactive-transaction client type (for helpers used inside $transaction).
 type Tx = Parameters<Parameters<typeof prisma.$transaction>[0]>[0];
 
-async function nextQueuePos(tx: Tx): Promise<number> {
-  const agg = await tx.ticket.aggregate({ where: { tenantId: DEFAULT_TENANT }, _max: { queuePos: true } });
+async function nextQueuePos(tx: Tx, tenantId: string = DEFAULT_TENANT): Promise<number> {
+  const agg = await tx.ticket.aggregate({ where: { tenantId }, _max: { queuePos: true } });
   return (agg._max.queuePos ?? 0) + 1;
 }
 
 /* ---------- public API ---------- */
-export async function getState(): Promise<YardState> {
-  await prep();
-  return buildState();
+export async function getState(tenantId?: string): Promise<YardState> {
+  const tid = tenantOf(tenantId);
+  await prep(tid);
+  return buildState(tid);
 }
 
 export async function createTicket(input: {
@@ -311,8 +358,9 @@ export async function createTicket(input: {
   cargo?: string;
   remarks?: string;
   createdSource?: "entry" | "billing";
-}): Promise<{ state: YardState; ticket: Ticket | null }> {
-  await prep();
+}, tenantId?: string): Promise<{ state: YardState; ticket: Ticket | null }> {
+  const DEFAULT_TENANT = tenantOf(tenantId); // scope all queries below to the caller's workspace (shadows the module default)
+  await prep(DEFAULT_TENANT);
   const created = await prisma.$transaction(async (tx) => {
     const settings = await tx.settings.findUnique({ where: { tenantId: DEFAULT_TENANT } });
     const timezone = settings?.timezone || "Asia/Kolkata";
@@ -338,7 +386,7 @@ export async function createTicket(input: {
       data: { boe: newBoe, ...(input.createdSource !== "billing" ? { serial } : {}) },
     });
 
-    const queuePos = await nextQueuePos(tx);
+    const queuePos = await nextQueuePos(tx, DEFAULT_TENANT);
     const ticket = await tx.ticket.create({
       data: {
         id,
@@ -377,15 +425,17 @@ export async function createTicket(input: {
     return ticket;
   });
 
-  const state = await buildState();
+  const state = await buildState(DEFAULT_TENANT);
   return { state, ticket: created ? toTicket(created) : null };
 }
 
 export async function updateEntryForBillingTicket(
   id: string,
   extra: { vehicle: string; remarks?: string; agent?: string },
+  tenantId?: string,
 ): Promise<YardState> {
-  await prep();
+  const DEFAULT_TENANT = tenantOf(tenantId); // scope all queries below to the caller's workspace (shadows the module default)
+  await prep(DEFAULT_TENANT);
   await prisma.$transaction(async (tx) => {
     const t = await tx.ticket.findUnique({ where: { id } });
     if (t && t.tenantId === DEFAULT_TENANT && t.createdSource === "billing" && (!t.serial || t.serial === 0)) {
@@ -426,14 +476,16 @@ export async function updateEntryForBillingTicket(
       });
     }
   });
-  return buildState();
+  return buildState(DEFAULT_TENANT);
 }
 
 export async function completeLoading(
   id: string,
   extra?: { boe?: string; workOrder?: string; agent?: string; remarks?: string; gateToken?: string; billingToken?: string },
+  tenantId?: string,
 ): Promise<YardState> {
-  await prep();
+  const DEFAULT_TENANT = tenantOf(tenantId); // scope all queries below to the caller's workspace (shadows the module default)
+  await prep(DEFAULT_TENANT);
   await prisma.$transaction(async (tx) => {
     const t = await tx.ticket.findUnique({ where: { id } });
     if (t && t.tenantId === DEFAULT_TENANT && (t.status === "awaiting_loading" || t.status === "awaiting_billing")) {
@@ -479,15 +531,16 @@ export async function completeLoading(
       });
     }
   });
-  return buildState();
+  return buildState(DEFAULT_TENANT);
 }
 
-export async function skipLoading(id: string): Promise<YardState> {
-  await prep();
+export async function skipLoading(id: string, tenantId?: string): Promise<YardState> {
+  const DEFAULT_TENANT = tenantOf(tenantId); // scope all queries below to the caller's workspace (shadows the module default)
+  await prep(DEFAULT_TENANT);
   const t = await prisma.ticket.findUnique({ where: { id } });
   if (t && t.tenantId === DEFAULT_TENANT) {
     await prisma.$transaction(async (tx) => {
-      const pos = await nextQueuePos(tx);
+      const pos = await nextQueuePos(tx, DEFAULT_TENANT);
       await tx.ticket.update({ where: { id }, data: { queuePos: pos } });
       await tx.activityEntry.create({
         data: {
@@ -503,7 +556,7 @@ export async function skipLoading(id: string): Promise<YardState> {
       });
     });
   }
-  return buildState();
+  return buildState(DEFAULT_TENANT);
 }
 
 export async function completeBilling(
@@ -511,8 +564,10 @@ export async function completeBilling(
   invoice: string,
   paymentStatus?: "Paid" | "Not Paid",
   extra?: { boe?: string; agent?: string; cargo?: string; remarks?: string },
+  tenantId?: string,
 ): Promise<YardState> {
-  await prep();
+  const DEFAULT_TENANT = tenantOf(tenantId); // scope all queries below to the caller's workspace (shadows the module default)
+  await prep(DEFAULT_TENANT);
   await prisma.$transaction(async (tx) => {
     const t = await tx.ticket.findUnique({ where: { id } });
     if (t && t.tenantId === DEFAULT_TENANT && t.status === "awaiting_billing") {
@@ -560,15 +615,16 @@ export async function completeBilling(
       });
     }
   });
-  return buildState();
+  return buildState(DEFAULT_TENANT);
 }
 
-export async function skipBilling(id: string): Promise<YardState> {
-  await prep();
+export async function skipBilling(id: string, tenantId?: string): Promise<YardState> {
+  const DEFAULT_TENANT = tenantOf(tenantId); // scope all queries below to the caller's workspace (shadows the module default)
+  await prep(DEFAULT_TENANT);
   const t = await prisma.ticket.findUnique({ where: { id } });
   if (t && t.tenantId === DEFAULT_TENANT) {
     await prisma.$transaction(async (tx) => {
-      const pos = await nextQueuePos(tx);
+      const pos = await nextQueuePos(tx, DEFAULT_TENANT);
       await tx.ticket.update({ where: { id }, data: { queuePos: pos } });
       await tx.activityEntry.create({
         data: {
@@ -584,11 +640,12 @@ export async function skipBilling(id: string): Promise<YardState> {
       });
     });
   }
-  return buildState();
+  return buildState(DEFAULT_TENANT);
 }
 
-export async function permitExit(id: string): Promise<YardState> {
-  await prep();
+export async function permitExit(id: string, tenantId?: string): Promise<YardState> {
+  const DEFAULT_TENANT = tenantOf(tenantId); // scope all queries below to the caller's workspace (shadows the module default)
+  await prep(DEFAULT_TENANT);
   const t = await prisma.ticket.findUnique({ where: { id } });
   if (t && t.tenantId === DEFAULT_TENANT && t.status === "awaiting_exit") {
     await prisma.$transaction([
@@ -607,11 +664,12 @@ export async function permitExit(id: string): Promise<YardState> {
       }),
     ]);
   }
-  return buildState();
+  return buildState(DEFAULT_TENANT);
 }
 
-export async function holdVehicle(id: string, reason: string): Promise<YardState> {
-  await prep();
+export async function holdVehicle(id: string, reason: string, tenantId?: string): Promise<YardState> {
+  const DEFAULT_TENANT = tenantOf(tenantId); // scope all queries below to the caller's workspace (shadows the module default)
+  await prep(DEFAULT_TENANT);
   const t = await prisma.ticket.findUnique({ where: { id } });
   if (t && t.tenantId === DEFAULT_TENANT && t.status === "awaiting_exit") {
     const holdReason = reason.trim() || "Unspecified";
@@ -631,11 +689,12 @@ export async function holdVehicle(id: string, reason: string): Promise<YardState
       }),
     ]);
   }
-  return buildState();
+  return buildState(DEFAULT_TENANT);
 }
 
-export async function ackAlert(id: number): Promise<YardState> {
-  await prep();
+export async function ackAlert(id: number, tenantId?: string): Promise<YardState> {
+  const DEFAULT_TENANT = tenantOf(tenantId); // scope all queries below to the caller's workspace (shadows the module default)
+  await prep(DEFAULT_TENANT);
   const a = await prisma.alert.findUnique({ where: { id } });
   if (a && a.tenantId === DEFAULT_TENANT && !a.acknowledged) {
     await prisma.$transaction([
@@ -651,7 +710,7 @@ export async function ackAlert(id: number): Promise<YardState> {
       }),
     ]);
   }
-  return buildState();
+  return buildState(DEFAULT_TENANT);
 }
 
 export async function reset(): Promise<YardState> {
@@ -715,8 +774,9 @@ export async function reset(): Promise<YardState> {
   return buildState();
 }
 
-export async function updateSettings(settings: Partial<SystemSettings>): Promise<YardState> {
-  await prep();
+export async function updateSettings(settings: Partial<SystemSettings>, tenantId?: string): Promise<YardState> {
+  const DEFAULT_TENANT = tenantOf(tenantId); // scope all queries below to the caller's workspace (shadows the module default)
+  await prep(DEFAULT_TENANT);
   const cur = await prisma.settings.findUnique({ where: { tenantId: DEFAULT_TENANT } });
   const base = cur ? toSettings(cur) : { ...DEFAULT_SETTINGS };
 
@@ -756,7 +816,7 @@ export async function updateSettings(settings: Partial<SystemSettings>): Promise
       formCustomization: (data.formCustomization as SystemSettings["formCustomization"]) ?? undefined,
     },
   });
-  return buildState();
+  return buildState(DEFAULT_TENANT);
 }
 
 /* ---------- SaaS Tenant Management ---------- */
@@ -777,6 +837,11 @@ export async function createTenant(input: {
   const expiryStr = expDate.toISOString().split("T")[0];
   const key = `YF-${input.name.replace(/[^a-zA-Z0-9]/g, "").slice(0, 4).toUpperCase()}-${Math.floor(1000 + Math.random() * 9000)}-${new Date().getFullYear()}`;
 
+  // A fresh company needs its own empty dataset: dedicated Settings + Counter
+  // rows keyed to its tenantId (tickets/alerts/activity start empty by absence).
+  const seed = buildSeed();
+  const tz = seed.settings?.timezone || "Asia/Kolkata";
+
   await prisma.$transaction(async (tx) => {
     await tx.tenant.create({
       data: {
@@ -791,6 +856,10 @@ export async function createTenant(input: {
         seats: input.seats,
         modules: input.modules,
       },
+    });
+    await tx.settings.create({ data: { tenantId, ...seed.settings } });
+    await tx.counter.create({
+      data: { tenantId, ...seed.counters, lastResetDate: getTodayString(tz) },
     });
     if (input.adminUsername && input.adminPassword) {
       await tx.operator.create({
@@ -861,6 +930,30 @@ export async function extendTenantLicense(id: string, years: number): Promise<Ya
   return buildState();
 }
 
+export async function setTenantLicense(
+  id: string,
+  expiryDate: string,
+  status: "Active" | "Expired" | "Suspended",
+): Promise<YardState> {
+  await prep();
+  const t = await prisma.tenant.findUnique({ where: { id } });
+  if (t) {
+    await prisma.$transaction([
+      prisma.tenant.update({ where: { id }, data: { expiryDate, status } }),
+      prisma.activityEntry.create({
+        data: {
+          id: rid(),
+          tenantId: DEFAULT_TENANT,
+          at: new Date().toISOString(),
+          action: "reset",
+          detail: `Updated license for ${t.name}: status ${status}, valid until ${expiryDate}`,
+        },
+      }),
+    ]);
+  }
+  return buildState();
+}
+
 export async function deleteTenant(id: string): Promise<YardState> {
   await prep();
   const t = await prisma.tenant.findUnique({ where: { id } });
@@ -889,19 +982,26 @@ export async function createOperator(input: {
   role: string;
   tenantId?: string;
 }): Promise<YardState> {
-  await prep();
+  // Scope the returned snapshot + audit entry to the workspace the new operator
+  // belongs to, so the admin's store stays on their own tenant's data.
+  const scope = tenantOf(input.tenantId);
+  await prep(scope);
   const tenants = await prisma.tenant.findMany({ orderBy: { createdAt: "asc" } });
   const operators = await prisma.operator.findMany();
 
-  const tenant = input.tenantId ? tenants.find((t) => t.id === input.tenantId) : tenants[0];
-  const seatLimit = tenant?.seats || 5;
-  const firstTenantId = tenants[0]?.id;
-  const tenantOperators = operators.filter(
-    (o) => o.tenantId === input.tenantId || (!o.tenantId && (!input.tenantId || input.tenantId === firstTenantId)),
-  );
-
-  if (tenantOperators.length >= seatLimit) {
-    throw new Error(`Operator seat limit reached (${seatLimit}). Upgrade your license.`);
+  // Seat limits are a per-company license: only operators created FOR that
+  // company count, and Administrator accounts (the admin themselves) never
+  // consume a seat — mirrors the client-side check on the admin page. Creations
+  // without a tenant (superadmin/default workspace) are not seat-capped.
+  if (input.tenantId) {
+    const tenant = tenants.find((t) => t.id === input.tenantId);
+    const seatLimit = tenant?.seats || 5;
+    const seatsUsed = operators.filter(
+      (o) => o.tenantId === input.tenantId && o.role !== "Administrator" && o.username !== "admin",
+    ).length;
+    if (seatsUsed >= seatLimit) {
+      throw new Error(`Operator seat limit reached (${seatLimit}). Upgrade your license.`);
+    }
   }
 
   const username = input.username.trim().toLowerCase();
@@ -921,7 +1021,7 @@ export async function createOperator(input: {
       prisma.activityEntry.create({
         data: {
           id: rid(),
-          tenantId: DEFAULT_TENANT,
+          tenantId: scope,
           at: new Date().toISOString(),
           action: "reset",
           detail: `Registered operator: ${input.name} (${input.role})`,
@@ -929,11 +1029,12 @@ export async function createOperator(input: {
       }),
     ]);
   }
-  return buildState();
+  return buildState(scope);
 }
 
-export async function deleteOperator(id: string): Promise<YardState> {
-  await prep();
+export async function deleteOperator(id: string, tenantId?: string): Promise<YardState> {
+  const DEFAULT_TENANT = tenantOf(tenantId); // scope the returned snapshot + audit entry to the caller's workspace (shadows the module default)
+  await prep(DEFAULT_TENANT);
   const op = await prisma.operator.findUnique({ where: { id } });
   if (op) {
     await prisma.$transaction([
@@ -949,11 +1050,12 @@ export async function deleteOperator(id: string): Promise<YardState> {
       }),
     ]);
   }
-  return buildState();
+  return buildState(DEFAULT_TENANT);
 }
 
-export async function changeOperatorPassword(username: string, passcode: string): Promise<YardState> {
-  await prep();
+export async function changeOperatorPassword(username: string, passcode: string, tenantId?: string): Promise<YardState> {
+  const DEFAULT_TENANT = tenantOf(tenantId); // scope the returned snapshot + audit entry to the caller's workspace (shadows the module default)
+  await prep(DEFAULT_TENANT);
   const op = await prisma.operator.findFirst({ where: { username: username.trim().toLowerCase() } });
   if (op) {
     await prisma.$transaction([
@@ -969,12 +1071,13 @@ export async function changeOperatorPassword(username: string, passcode: string)
       }),
     ]);
   }
-  return buildState();
+  return buildState(DEFAULT_TENANT);
 }
 
 /* ---------- Role Permissions Management ---------- */
-export async function updateRolePermissions(role: string, allowedPaths: string[]): Promise<YardState> {
-  await prep();
+export async function updateRolePermissions(role: string, allowedPaths: string[], tenantId?: string): Promise<YardState> {
+  const DEFAULT_TENANT = tenantOf(tenantId); // scope the returned snapshot + audit entry to the caller's workspace (shadows the module default)
+  await prep(DEFAULT_TENANT);
   await prisma.$transaction([
     prisma.rolePermission.upsert({
       where: { role },
@@ -991,5 +1094,5 @@ export async function updateRolePermissions(role: string, allowedPaths: string[]
       },
     }),
   ]);
-  return buildState();
+  return buildState(DEFAULT_TENANT);
 }

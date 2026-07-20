@@ -19,6 +19,7 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params;
+  const tenantId = req.headers.get("x-tenant-id") ?? undefined;
   const body = await req.json().catch(() => ({}));
   const action = body.action as string;
 
@@ -29,7 +30,7 @@ export async function POST(
         vehicle: typeof body.vehicle === "string" ? body.vehicle : "",
         agent: typeof body.agent === "string" ? body.agent : undefined,
         remarks: typeof body.remarks === "string" ? body.remarks : undefined,
-      });
+      }, tenantId);
       break;
     case "complete-loading":
       state = await completeLoading(id, {
@@ -39,10 +40,10 @@ export async function POST(
         remarks: typeof body.remarks === "string" ? body.remarks : undefined,
         gateToken: typeof body.gateToken === "string" ? body.gateToken : undefined,
         billingToken: typeof body.billingToken === "string" ? body.billingToken : undefined,
-      });
+      }, tenantId);
       break;
     case "skip-loading":
-      state = await skipLoading(id);
+      state = await skipLoading(id, tenantId);
       break;
     case "complete-billing": {
       const invoice = typeof body.invoice === "string" ? body.invoice.trim() : "";
@@ -51,17 +52,17 @@ export async function POST(
         agent: typeof body.agent === "string" ? body.agent : undefined,
         cargo: typeof body.cargo === "string" ? body.cargo : undefined,
         remarks: typeof body.remarks === "string" ? body.remarks : undefined,
-      });
+      }, tenantId);
       break;
     }
     case "skip-billing":
-      state = await skipBilling(id);
+      state = await skipBilling(id, tenantId);
       break;
     case "permit-exit":
-      state = await permitExit(id);
+      state = await permitExit(id, tenantId);
       break;
     case "hold":
-      state = await holdVehicle(id, typeof body.reason === "string" ? body.reason : "");
+      state = await holdVehicle(id, typeof body.reason === "string" ? body.reason : "", tenantId);
       break;
     default:
       return NextResponse.json({ error: "Unknown action." }, { status: 400 });

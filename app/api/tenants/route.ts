@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
-import { createTenant, extendTenantLicense, deleteTenant, updateTenantConfig } from "@/lib/db";
+import { createTenant, extendTenantLicense, deleteTenant, updateTenantConfig, setTenantLicense } from "@/lib/db";
 
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const { action, name, domain, plan, seats, id, years, modules, adminUsername, adminPassword } = body;
+    const { action, name, domain, plan, seats, id, years, modules, adminUsername, adminPassword, expiryDate, status } = body;
 
     let state;
     if (action === "create") {
@@ -17,6 +17,11 @@ export async function POST(req: Request) {
         return NextResponse.json({ error: "Missing config fields" }, { status: 400 });
       }
       state = await updateTenantConfig(id, Number(seats), modules || []);
+    } else if (action === "setLicense") {
+      if (!id || !expiryDate || !status) {
+        return NextResponse.json({ error: "Missing license fields" }, { status: 400 });
+      }
+      state = await setTenantLicense(id, expiryDate, status);
     } else if (action === "extend") {
       if (!id || !years) {
         return NextResponse.json({ error: "Missing license extension fields" }, { status: 400 });

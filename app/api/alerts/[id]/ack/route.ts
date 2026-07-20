@@ -5,10 +5,11 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function POST(
-  _req: Request,
+  req: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params;
-  const state = await ackAlert(Number(id));
+  const tenantId = req.headers.get("x-tenant-id") ?? undefined;
+  const state = await ackAlert(Number(id), tenantId);
   return NextResponse.json({ state });
 }

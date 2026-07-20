@@ -5,6 +5,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
+  const tenantId = req.headers.get("x-tenant-id") ?? undefined;
   const body = await req.json().catch(() => ({}));
   const vehicle = typeof body.vehicle === "string" ? body.vehicle.trim() : "";
   if (!vehicle) {
@@ -20,6 +21,6 @@ export async function POST(req: Request) {
     cargo: body.cargo,
     remarks: body.remarks,
     createdSource: body.createdSource,
-  });
+  }, tenantId);
   return NextResponse.json({ state, ticket });
 }

@@ -8,7 +8,7 @@ import { useStore } from "@/lib/store";
 import { fmtDate, fmtTime, getLocalDateString } from "@/lib/format";
 import { printToken } from "@/lib/print-token";
 import { ChevronDown, ChevronUp } from "lucide-react";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion, AnimatePresence } from "motion/react";
 
 export default function EntryPage() {
   const tickets = useStore((s) => s.tickets);

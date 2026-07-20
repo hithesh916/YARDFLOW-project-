@@ -70,6 +70,7 @@ interface Store {
   }) => Promise<boolean>;
   updateTenantConfig: (id: string, seats: number, modules: string[]) => Promise<boolean>;
   extendTenant: (id: string, years: number) => Promise<boolean>;
+  setTenantLicense: (id: string, expiryDate: string, status: "Active" | "Expired" | "Suspended") => Promise<boolean>;
   deleteTenant: (id: string) => Promise<boolean>;
   createOperator: (input: {
     name: string;
@@ -87,10 +88,25 @@ interface Store {
   stopPolling: () => void;
 }
 
+// The logged-in user's workspace, read from the persisted session. Sent on every
+// request as x-tenant-id so the server scopes reads/writes to this company's data.
+// Absent for the superadmin and the hardcoded demo logins → shared default workspace.
+export function tenantHeaders(): Record<string, string> {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = localStorage.getItem("yardflow_user");
+    if (!raw) return {};
+    const tid = JSON.parse(raw)?.tenantId;
+    return tid ? { "x-tenant-id": String(tid) } : {};
+  } catch {
+    return {};
+  }
+}
+
 async function postJson(url: string, body?: unknown) {
   const res = await fetch(url, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...tenantHeaders() },
     body: JSON.stringify(body ?? {}),
   });
   const data = await res.json().catch(() => ({}));
@@ -215,6 +231,9 @@ export const useStore = create<Store>((set, get) => ({
       if (typeof window !== "undefined") {
         localStorage.setItem("yardflow_user", JSON.stringify(mappedUser));
       }
+      // Re-fetch state under the new workspace header so a tenant admin sees
+      // their own company's data immediately, not after the next poll tick.
+      void get().hydrate();
       return true;
     }
 
@@ -235,7 +254,7 @@ export const useStore = create<Store>((set, get) => ({
     }
 
     try {
-      const res = await fetch("/api/state", { cache: "no-store" });
+      const res = await fetch("/api/state", { cache: "no-store", headers: tenantHeaders() });
       const state: YardState = await res.json();
       set({ ...state, ready: true });
 
@@ -243,7 +262,17 @@ export const useStore = create<Store>((set, get) => ({
         try {
           const parsed = JSON.parse(storedUser) as OperatorUser;
           if (parsed.username === "superadmin" && parsed.passcode === "super123") {
-            set({ currentUser: parsed });
+            // Rebuild the superadmin identity from canonical values rather than
+            // trusting the persisted object — a session saved before a path
+            // (e.g. /reports) was added would otherwise keep a stale nav.
+            set({
+              currentUser: {
+                ...parsed,
+                role: "superadmin",
+                name: "Platform Owner",
+                allowedPaths: ["/", "/entry", "/billing", "/loading", "/exit", "/reports", "/admin", "/superadmin"],
+              },
+            });
           } else {
             const freshOp = state.operators.find(
               (o) => o.username === parsed.username && o.passcode === parsed.passcode,
@@ -382,6 +411,18 @@ export const useStore = create<Store>((set, get) => ({
     }
   },
 
+  setTenantLicense: async (id, expiryDate, status) => {
+    try {
+      const state = await postJson("/api/tenants", { action: "setLicense", id, expiryDate, status });
+      set({ ...state });
+      toast.success("License updated successfully.");
+      return true;
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "License update failed.");
+      return false;
+    }
+  },
+
   deleteTenant: async (id) => {
     try {
       const state = await postJson("/api/tenants", { action: "delete", id });
@@ -464,7 +505,7 @@ export const useStore = create<Store>((set, get) => ({
       if (_polling) return;
       _polling = true;
       try {
-        const res = await fetch("/api/state", { cache: "no-store" });
+        const res = await fetch("/api/state", { cache: "no-store", headers: tenantHeaders() });
         if (res.ok) {
           const state: YardState = await res.json();
           

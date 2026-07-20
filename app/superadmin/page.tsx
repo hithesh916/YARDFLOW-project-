@@ -47,6 +47,7 @@ import {
   Download,
   Settings,
   CheckCircle2,
+  Ban,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Panel } from "@/components/panel";
@@ -71,6 +72,7 @@ export default function SuperAdminHub() {
   const extendTenant = useStore((s) => s.extendTenant);
   const deleteTenant = useStore((s) => s.deleteTenant);
   const updateTenantConfig = useStore((s) => s.updateTenantConfig);
+  const setTenantLicense = useStore((s) => s.setTenantLicense);
 
   const [activeTab, setActiveTab] = useSessionStorage<"tenants" | "registry" | "backend">("superadmin_activeTab", "tenants");
   const [search, setSearch] = useSessionStorage("superadmin_search", "");
@@ -92,6 +94,39 @@ export default function SuperAdminHub() {
   const [editTenantId, setEditTenantId] = useSessionStorage<string | null>("superadmin_editTenantId", null);
   const [editSeats, setEditSeats] = useSessionStorage("superadmin_editSeats", 5);
   const [editModules, setEditModules] = useSessionStorage<string[]>("superadmin_editModules", []);
+
+  // License management modal state
+  const [manageTenantId, setManageTenantId] = useState<string | null>(null);
+  const [licenseExpiry, setLicenseExpiry] = useState("");
+  const [licenseStatus, setLicenseStatus] = useState<"Active" | "Expired" | "Suspended">("Active");
+  const manageTenant = manageTenantId ? tenants.find((t) => t.id === manageTenantId) : null;
+
+  function openManage(t: typeof tenants[number]) {
+    setManageTenantId(t.id);
+    setLicenseExpiry(t.expiryDate);
+    setLicenseStatus(t.status);
+  }
+
+  // Whole-day difference between the expiry date and today (negative = already expired)
+  function daysUntil(dateStr: string): number {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const target = new Date(dateStr);
+    target.setHours(0, 0, 0, 0);
+    return Math.round((target.getTime() - today.getTime()) / 86400000);
+  }
+
+  async function handleLicenseSave(e: React.FormEvent) {
+    e.preventDefault();
+    if (!manageTenantId || !licenseExpiry) {
+      toast.error("Please choose a valid expiry date.");
+      return;
+    }
+    setBusy(true);
+    const ok = await setTenantLicense(manageTenantId, licenseExpiry, licenseStatus);
+    setBusy(false);
+    if (ok) setManageTenantId(null);
+  }
 
   const AVAILABLE_MODULES = [
     { id: "dashboard", label: "Dashboard" },
@@ -432,6 +467,125 @@ export default function SuperAdminHub() {
             </form>
           </DialogContent>
         </Dialog>
+
+        {/* License Management Modal — opened by clicking a tenant card */}
+        <Dialog open={!!manageTenantId} onOpenChange={(o) => !o && setManageTenantId(null)}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Briefcase size={18} className="text-blue-600" /> License Management
+              </DialogTitle>
+              <DialogDescription>
+                Full license details for this tenant. Adjust the validity period or access
+                status — the client's data is always preserved.
+              </DialogDescription>
+            </DialogHeader>
+
+            {manageTenant && (() => {
+              const remaining = daysUntil(licenseExpiry);
+              const dateExpired = remaining < 0;
+              const accessBlocked = licenseStatus !== "Active" || dateExpired;
+              return (
+                <form onSubmit={handleLicenseSave} className="flex flex-col gap-4 py-2">
+                  {/* Read-only identity card */}
+                  <div className="rounded-xl border border-slate-100 bg-slate-50/50 p-4">
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-600 font-extrabold text-sm border border-blue-100">
+                        {manageTenant.name.slice(0, 2).toUpperCase()}
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-sm font-extrabold text-slate-800 truncate">{manageTenant.name}</p>
+                        <p className="text-[11px] text-slate-400 truncate">{manageTenant.domain || "No domain set"}</p>
+                      </div>
+                    </div>
+                    <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 text-[11px]">
+                      <div className="flex justify-between border-b border-slate-100 pb-1">
+                        <span className="font-bold text-slate-400 uppercase tracking-wider">Tenant ID</span>
+                        <span className="font-mono font-bold text-slate-600">{manageTenant.id}</span>
+                      </div>
+                      <div className="flex justify-between border-b border-slate-100 pb-1">
+                        <span className="font-bold text-slate-400 uppercase tracking-wider">Plan</span>
+                        <span className="font-bold text-purple-700">{manageTenant.plan}</span>
+                      </div>
+                      <div className="flex justify-between border-b border-slate-100 pb-1">
+                        <span className="font-bold text-slate-400 uppercase tracking-wider">License Key</span>
+                        <span className="font-mono font-bold text-slate-600">{manageTenant.licenseKey}</span>
+                      </div>
+                      <div className="flex justify-between border-b border-slate-100 pb-1">
+                        <span className="font-bold text-slate-400 uppercase tracking-wider">Seats</span>
+                        <span className="font-bold text-slate-600">{manageTenant.seats}</span>
+                      </div>
+                      <div className="flex justify-between border-b border-slate-100 pb-1">
+                        <span className="font-bold text-slate-400 uppercase tracking-wider">Onboarded</span>
+                        <span className="font-bold text-slate-600">{manageTenant.onboardedDate}</span>
+                      </div>
+                      <div className="flex justify-between border-b border-slate-100 pb-1">
+                        <span className="font-bold text-slate-400 uppercase tracking-wider">Modules</span>
+                        <span className="font-bold text-slate-600">{(manageTenant.modules || []).length} enabled</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Live access indicator */}
+                  <div className={`flex items-center gap-2.5 rounded-lg border px-3.5 py-2.5 text-xs font-bold ${
+                    accessBlocked
+                      ? "border-rose-200 bg-rose-50 text-rose-700"
+                      : "border-emerald-200 bg-emerald-50 text-emerald-700"
+                  }`}>
+                    {accessBlocked ? <Ban size={15} /> : <CheckCircle2 size={15} />}
+                    {accessBlocked
+                      ? `Portal access is BLOCKED for this tenant${dateExpired && licenseStatus === "Active" ? " (license date expired)" : ""}. Their data is retained.`
+                      : `Portal access is ACTIVE — ${remaining} day${remaining === 1 ? "" : "s"} remaining.`}
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="mb-1 block text-xs font-bold text-slate-600">License Expiry Date</label>
+                      <input
+                        type="date"
+                        value={licenseExpiry}
+                        onChange={(e) => setLicenseExpiry(e.target.value)}
+                        className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-2 text-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-xs font-bold text-slate-600">Access Status</label>
+                      <select
+                        value={licenseStatus}
+                        onChange={(e) => setLicenseStatus(e.target.value as "Active" | "Expired" | "Suspended")}
+                        className="w-full rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
+                      >
+                        <option value="Active">Active — full access</option>
+                        <option value="Suspended">Suspended — access blocked</option>
+                        <option value="Expired">Expired — access blocked</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <p className="text-[11px] leading-relaxed text-slate-400">
+                    Set <span className="font-bold text-slate-500">Active</span> with a future date to grant
+                    access (the client can then log in, operate, and download). A past date or a
+                    Suspended/Expired status locks the portal while keeping every record intact until you
+                    restore access.
+                  </p>
+
+                  <DialogFooter className="mt-2">
+                    <button
+                      type="button"
+                      onClick={() => setManageTenantId(null)}
+                      className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50"
+                    >
+                      Cancel
+                    </button>
+                    <button type="submit" disabled={busy} className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-bold text-white hover:bg-blue-700 disabled:opacity-50">
+                      {busy ? "Saving..." : "Save License"}
+                    </button>
+                  </DialogFooter>
+                </form>
+              );
+            })()}
+          </DialogContent>
+        </Dialog>
       </div>
 
       {/* Tabs list matching Screenshot 1 */}
@@ -584,7 +738,9 @@ export default function SuperAdminHub() {
                   return (
                     <div
                       key={t.id}
-                      className="flex flex-col justify-between gap-4 rounded-xl border border-slate-100 p-5 hover:shadow-sm sm:flex-row sm:items-center bg-slate-50/20"
+                      onClick={() => openManage(t)}
+                      className="flex cursor-pointer flex-col justify-between gap-4 rounded-xl border border-slate-100 p-5 transition-shadow hover:border-blue-200 hover:shadow-sm sm:flex-row sm:items-center bg-slate-50/20"
+                      title="Click to manage license"
                     >
                       <div className="flex items-start gap-4">
                         <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-600 font-extrabold text-sm border border-blue-100">
@@ -630,7 +786,8 @@ export default function SuperAdminHub() {
                         {/* License Extensions & Delete */}
                         <div className="flex gap-2 w-full sm:w-auto flex-wrap">
                           <button
-                            onClick={() => {
+                            onClick={(e) => {
+                              e.stopPropagation();
                               setEditTenantId(t.id);
                               setEditSeats(t.seats);
                               setEditModules(t.modules || []);
@@ -640,13 +797,19 @@ export default function SuperAdminHub() {
                             <Settings size={14} /> Edit Config
                           </button>
                           <button
-                            onClick={() => handleExtend(t.id)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleExtend(t.id);
+                            }}
                             className="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 rounded-lg border-2 border-slate-200 bg-white px-3 py-2 text-xs font-extrabold text-slate-600 hover:bg-slate-50 transition-colors"
                           >
                             Extend
                           </button>
                           <button
-                            onClick={() => handleDelete(t.id)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDelete(t.id);
+                            }}
                             className="rounded-lg border-2 border-rose-100 bg-white p-2 text-rose-500 hover:bg-rose-50 transition-colors"
                             title="Delete Tenant"
                           >

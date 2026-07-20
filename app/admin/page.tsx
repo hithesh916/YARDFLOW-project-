@@ -32,18 +32,14 @@ function useSessionStorage<T>(key: string, initialValue: T) {
 
 import {
   Users,
-  Grid,
-  Settings,
-  Receipt,
   Plus,
   Trash2,
-  Database,
-  RotateCcw,
-  ShieldCheck,
-  Download,
   Building,
-  CreditCard,
-  Briefcase
+  ShieldCheck,
+  Lock,
+  MapPin,
+  Phone,
+  Receipt,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Panel } from "@/components/panel";
@@ -77,7 +73,6 @@ export default function AdminPage() {
   const tenants = useStore((s) => s.tenants);
   const currentUser = useStore((s) => s.currentUser);
   const updateSettings = useStore((s) => s.updateSettings);
-  const reset = useStore((s) => s.reset);
 
   const createOperator = useStore((s) => s.createOperator);
   const deleteOperator = useStore((s) => s.deleteOperator);
@@ -87,35 +82,36 @@ export default function AdminPage() {
     ? tenants.find(t => t.id === currentUser.tenantId) 
     : tenants[0];
 
-  const tenantOperators = operators.filter(o => 
-    (o.tenantId === currentTenant?.id || (!o.tenantId && currentTenant?.id === tenants[0]?.id)) && 
+  // Only operators the admin actually created for THIS tenant count toward the
+  // seat allowance. Seeded/global demo accounts (no tenantId) are never
+  // attributed to a real tenant, and Administrator accounts (the admin
+  // themselves) never consume a seat — the license seats are for operators the
+  // admin generates, not the admin.
+  const tenantOperators = operators.filter(o =>
+    !!currentTenant &&
+    o.tenantId === currentTenant.id &&
+    o.role !== "Administrator" &&
     o.username !== "admin"
   );
 
-  const [activeTab, setActiveTab] = useSessionStorage<"company" | "users" | "modules" | "license" | "reports" | "data">("admin_activeTab", "company");
+  const [activeTab, setActiveTab] = useSessionStorage<"company" | "users">("admin_activeTab", "company");
 
   // Terminal Settings
   const [companyName, setCompanyName] = useSessionStorage("admin_companyName", "");
   const [companyAddress, setCompanyAddress] = useSessionStorage("admin_companyAddress", "");
   const [companyContact, setCompanyContact] = useSessionStorage("admin_companyContact", "");
+  const [companyGst, setCompanyGst] = useSessionStorage("admin_companyGst", "");
   const [logoUrl, setLogoUrl] = useState("");
   const [busy, setBusy] = useState(false);
+
+  // Once company details are saved, the profile is locked (read-only ID card).
+  const companyLocked = !!settings?.companyName?.trim();
 
   // User Management
   const [opName, setOpName] = useSessionStorage("admin_opName", "");
   const [opUsername, setOpUsername] = useSessionStorage("admin_opUsername", "");
   const [opPasscode, setOpPasscode] = useSessionStorage("admin_opPasscode", "");
   const [opRole, setOpRole] = useSessionStorage("admin_opRole", "Gate Operator");
-
-  // Module Customization
-  const [enableQrCode, setEnableQrCode] = useSessionStorage("admin_enableQrCode", true);
-  const [boeLabel, setBoeLabel] = useSessionStorage("admin_boeLabel", "BOE Number");
-  const [remarksOptional, setRemarksOptional] = useSessionStorage("admin_remarksOptional", true);
-
-  // Reports
-  const [startDate, setStartDate] = useSessionStorage("admin_startDate", "");
-  const [endDate, setEndDate] = useSessionStorage("admin_endDate", "");
-  const [repModules, setRepModules] = useSessionStorage<string[]>("admin_repModules", ["Entry", "Billing", "Loading", "Exit"]);
 
   const [settingsLoaded, setSettingsLoaded] = useSessionStorage("admin_settingsLoaded", false);
 
@@ -124,9 +120,7 @@ export default function AdminPage() {
       setCompanyName(settings.companyName || "");
       setCompanyAddress(settings.companyAddress || "");
       setCompanyContact(settings.companyContact || "");
-      setEnableQrCode(settings.formCustomization?.enableQrCode ?? true);
-      setBoeLabel(settings.formCustomization?.renameFields?.boe || "BOE Number");
-      setRemarksOptional(settings.formCustomization?.optionalFields?.includes("remarks") ?? true);
+      setCompanyGst(settings.companyGst || "");
       setSettingsLoaded(true);
     }
   }, [settings, settingsLoaded]);
@@ -137,6 +131,7 @@ export default function AdminPage() {
       companyName: companyName.trim(),
       companyAddress: companyAddress.trim(),
       companyContact: companyContact.trim(),
+      companyGst: companyGst.trim(),
       logoUrl: logoUrl === "removed" ? "" : (logoUrl ? logoUrl.trim() : (settings?.logoUrl || "")),
     });
     setBusy(false);
@@ -148,27 +143,7 @@ export default function AdminPage() {
     }
   }
 
-  async function handleSaveModules() {
-    setBusy(true);
-    const optionalFields = remarksOptional ? ["remarks"] : [];
-    const renameFields = { boe: boeLabel.trim() || "BOE Number" };
-    
-    const ok = await updateSettings({
-      formCustomization: {
-        enableQrCode,
-        renameFields,
-        optionalFields
-      }
-    });
-    setBusy(false);
-    if (ok) {
-      toast.success("Module Configuration saved.");
-      // Do not remove from session storage so it persists when navigating back
-      setSettingsLoaded(false);
-    }
-  }
-
-  async function handleAddOperator(e: React.FormEvent) {
+async function handleAddOperator(e: React.FormEvent) {
     e.preventDefault();
     if (!opName.trim() || !opUsername.trim() || !opPasscode) {
       toast.error("Please fill in name, username and passcode.");
@@ -196,72 +171,19 @@ export default function AdminPage() {
     }
   }
 
-  function toggleReportModule(mod: string) {
-    setRepModules(prev => 
-      prev.includes(mod) ? prev.filter(m => m !== mod) : [...prev, mod]
-    );
-  }
-
-  function handleGenerateReport() {
-    if (repModules.length === 0) {
-      toast.error("Please select at least one module for the report.");
-      return;
-    }
-    
-    let filtered = tickets;
-    if (startDate) {
-      const start = new Date(startDate).getTime();
-      filtered = filtered.filter(t => new Date(t.entryTime).getTime() >= start);
-    }
-    if (endDate) {
-      const end = new Date(endDate).getTime();
-      filtered = filtered.filter(t => new Date(t.entryTime).getTime() <= end + 86400000);
-    }
-
-    const headers = ["Ticket ID", "Vehicle", "Entry Time", "Status"];
-    if (repModules.includes("Entry")) headers.push("Agent", "Cargo");
-    if (repModules.includes("Billing")) headers.push("Invoice", "Payment");
-    if (repModules.includes("Loading")) headers.push("Bay", "Loading End");
-    if (repModules.includes("Exit")) headers.push("Exit Time");
-
-    const rows = filtered.map(t => {
-      const row = [t.id, t.vehicle, t.entryTime, t.status];
-      if (repModules.includes("Entry")) row.push(t.agent, t.cargo);
-      if (repModules.includes("Billing")) row.push(t.invoice || "", t.paymentStatus || "");
-      if (repModules.includes("Loading")) row.push(t.bay, t.loadingEnd || "");
-      if (repModules.includes("Exit")) row.push(t.exitTime || "");
-      return row;
-    });
-
-    const csvContent = [headers.join(","), ...rows.map(r => r.map(val => `"${String(val).replace(/"/g, '""')}"`).join(","))].join("\n");
-    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.setAttribute("href", url);
-    link.setAttribute("download", `YARDFLOW_Report_${new Date().toISOString().split("T")[0]}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    toast.success("Excel/CSV Report Generated successfully!");
-  }
-
-  return (
+return (
     <div className="flex flex-col gap-6 pb-12">
       <div>
         <h2 className="text-2xl font-black text-slate-800">Client Admin Dashboard</h2>
         <p className="text-xs text-slate-400">
-          Manage your company settings, users, modules, and billing configurations.
+          Manage your company settings and user accounts.
         </p>
       </div>
 
       <div className="flex border-b border-slate-200 text-xs overflow-x-auto">
         {[
           { id: "company", icon: Building, label: "Company Information" },
-          { id: "users", icon: Users, label: "User Management" },
-          { id: "modules", icon: Settings, label: "Module Customization" },
-          { id: "license", icon: CreditCard, label: "License Info" },
-          { id: "reports", icon: Download, label: "Reports" },
-          { id: "data", icon: Database, label: "Data Management" }
+          { id: "users", icon: Users, label: "User Management" }
         ].map(tab => (
           <button
             key={tab.id}
@@ -278,63 +200,138 @@ export default function AdminPage() {
       </div>
 
       {activeTab === "company" && (
-        <Panel className="p-8 bg-white shadow-sm max-w-3xl">
-          <h3 className="mb-6 text-base font-extrabold text-slate-800">Update Company Details</h3>
-          <div className="flex flex-col gap-5">
-            <div>
-              <label className="mb-1 block text-xs font-bold text-slate-600">COMPANY NAME</label>
-              <input value={companyName} onChange={e => setCompanyName(e.target.value)} className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-2 text-sm" />
-            </div>
-            <div>
-              <label className="mb-1 block text-xs font-bold text-slate-600">COMPANY LOGO (UPLOAD FILE)</label>
-              <input
-                id="logo-upload"
-                type="file"
-                accept="image/*"
-                onChange={e => {
-                  const file = e.target.files?.[0];
-                  if (file) {
-                    const reader = new FileReader();
-                    reader.onloadend = () => {
-                      setLogoUrl(reader.result as string);
-                    };
-                    reader.readAsDataURL(file);
-                  }
-                }}
-                className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-2 text-sm"
-              />
-              {(logoUrl !== "removed" && (logoUrl || settings?.logoUrl)) ? (
-                <div className="mt-2 flex flex-col items-start gap-2">
-                  <img src={logoUrl || settings?.logoUrl} alt="Logo Preview" className="h-12 object-contain" />
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setLogoUrl("removed");
-                      const input = document.getElementById("logo-upload") as HTMLInputElement;
-                      if (input) input.value = "";
-                    }}
-                    className="text-xs font-bold text-red-500 hover:text-red-700 hover:underline"
-                  >
-                    Remove Image
-                  </button>
+        companyLocked ? (
+          /* ---- Locked company profile (ID-card style, read-only) ---- */
+          <Panel className="p-0 overflow-hidden bg-white shadow-sm max-w-3xl">
+            {/* Header band */}
+            <div className="flex items-center gap-5 bg-gradient-to-r from-slate-800 to-slate-900 px-8 py-7">
+              <div className="flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-white/15 bg-white/95">
+                {settings?.logoUrl ? (
+                  <img src={settings.logoUrl} alt="Company Logo" className="h-full w-full object-contain p-1.5" />
+                ) : (
+                  <Building size={34} className="text-slate-400" />
+                )}
+              </div>
+              <div className="min-w-0">
+                <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-blue-300">
+                  Registered Company Profile
                 </div>
-              ) : null}
+                <h3 className="mt-0.5 truncate text-2xl font-black text-white">
+                  {settings?.companyName}
+                </h3>
+                <div className="mt-1.5 inline-flex items-center gap-1.5 rounded-full bg-emerald-500/15 px-2.5 py-1 text-[11px] font-bold text-emerald-300">
+                  <ShieldCheck size={13} /> Verified &amp; Locked
+                </div>
+              </div>
             </div>
-            <div>
-              <label className="mb-1 block text-xs font-bold text-slate-600">COMPANY ADDRESS</label>
-              <textarea value={companyAddress} onChange={e => setCompanyAddress(e.target.value)} className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-2 text-sm min-h-20" />
+
+            {/* Detail rows */}
+            <div className="divide-y divide-slate-100">
+              <div className="flex items-start gap-3 px-8 py-5">
+                <MapPin size={17} className="mt-0.5 shrink-0 text-slate-400" />
+                <div>
+                  <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Company Address</div>
+                  <div className="mt-0.5 whitespace-pre-line text-sm font-semibold text-slate-800">
+                    {settings?.companyAddress || <span className="font-normal text-slate-400">—</span>}
+                  </div>
+                </div>
+              </div>
+              <div className="flex items-start gap-3 px-8 py-5">
+                <Phone size={17} className="mt-0.5 shrink-0 text-slate-400" />
+                <div>
+                  <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Contact Details</div>
+                  <div className="mt-0.5 text-sm font-semibold text-slate-800">
+                    {settings?.companyContact || <span className="font-normal text-slate-400">—</span>}
+                  </div>
+                </div>
+              </div>
+              <div className="flex items-start gap-3 px-8 py-5">
+                <Receipt size={17} className="mt-0.5 shrink-0 text-slate-400" />
+                <div>
+                  <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">GST Number</div>
+                  <div className="mt-0.5 font-mono text-sm font-semibold text-slate-800">
+                    {settings?.companyGst || <span className="font-sans font-normal text-slate-400">—</span>}
+                  </div>
+                </div>
+              </div>
             </div>
-            <div>
-              <label className="mb-1 block text-xs font-bold text-slate-600">CONTACT DETAILS</label>
-              <input value={companyContact} onChange={e => setCompanyContact(e.target.value)} className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-2 text-sm" />
+
+            {/* Footer note */}
+            <div className="flex items-center gap-2 border-t border-slate-100 bg-slate-50 px-8 py-4 text-xs font-medium text-slate-500">
+              <Lock size={13} className="shrink-0" />
+              This profile is locked and is printed on every gate, billing &amp; loading token.
             </div>
-            <div className="flex justify-end mt-4">
-              <button onClick={handleSaveCompany} disabled={busy} className="rounded-lg bg-blue-600 px-6 py-2.5 text-xs font-bold text-white hover:bg-blue-700">
-                Save Company Information
-              </button>
+          </Panel>
+        ) : (
+          /* ---- One-time setup form (editable until saved) ---- */
+          <Panel className="p-8 bg-white shadow-sm max-w-3xl">
+            <h3 className="mb-1 text-base font-extrabold text-slate-800">Set Up Company Profile</h3>
+            <p className="mb-6 text-xs text-slate-400">
+              These details print on every token. Once saved, the profile is locked and can no longer be edited here.
+            </p>
+            <div className="flex flex-col gap-5">
+              <div>
+                <label className="mb-1 block text-xs font-bold text-slate-600">COMPANY NAME</label>
+                <input value={companyName} onChange={e => setCompanyName(e.target.value)} className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-2 text-sm" />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-bold text-slate-600">COMPANY LOGO (UPLOAD FILE)</label>
+                <input
+                  id="logo-upload"
+                  type="file"
+                  accept="image/*"
+                  onChange={e => {
+                    const file = e.target.files?.[0];
+                    if (file) {
+                      const reader = new FileReader();
+                      reader.onloadend = () => {
+                        setLogoUrl(reader.result as string);
+                      };
+                      reader.readAsDataURL(file);
+                    }
+                  }}
+                  className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-2 text-sm"
+                />
+                {(logoUrl !== "removed" && (logoUrl || settings?.logoUrl)) ? (
+                  <div className="mt-2 flex flex-col items-start gap-2">
+                    <img src={logoUrl || settings?.logoUrl} alt="Logo Preview" className="h-12 object-contain" />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setLogoUrl("removed");
+                        const input = document.getElementById("logo-upload") as HTMLInputElement;
+                        if (input) input.value = "";
+                      }}
+                      className="text-xs font-bold text-red-500 hover:text-red-700 hover:underline"
+                    >
+                      Remove Image
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-bold text-slate-600">COMPANY ADDRESS</label>
+                <textarea value={companyAddress} onChange={e => setCompanyAddress(e.target.value)} className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-2 text-sm min-h-20" />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-bold text-slate-600">CONTACT DETAILS</label>
+                <input value={companyContact} onChange={e => setCompanyContact(e.target.value)} className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-2 text-sm" />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-bold text-slate-600">GST NUMBER</label>
+                <input value={companyGst} onChange={e => setCompanyGst(e.target.value)} className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-2 text-sm font-mono" />
+              </div>
+              <div className="flex items-center justify-between gap-3 mt-4">
+                <span className="flex items-center gap-1.5 text-[11px] font-medium text-amber-600">
+                  <Lock size={12} /> Locks after saving
+                </span>
+                <button onClick={handleSaveCompany} disabled={busy} className="rounded-lg bg-blue-600 px-6 py-2.5 text-xs font-bold text-white hover:bg-blue-700 disabled:opacity-50">
+                  Save Company Information
+                </button>
+              </div>
             </div>
-          </div>
-        </Panel>
+          </Panel>
+        )
       )}
 
       {activeTab === "users" && (
@@ -397,184 +394,6 @@ export default function AdminPage() {
             </div>
           </Panel>
         </div>
-      )}
-
-      {activeTab === "modules" && (
-        <Panel className="p-8 bg-white shadow-sm max-w-3xl">
-          <h3 className="mb-6 text-base font-extrabold text-slate-800">Module Customization</h3>
-          
-          <div className="flex flex-col gap-8">
-            <div>
-              <h4 className="text-sm font-bold text-slate-700 mb-3 border-b pb-2">Features</h4>
-              <label className="flex items-center gap-3 text-sm cursor-pointer">
-                <input type="checkbox" checked={enableQrCode} onChange={e => setEnableQrCode(e.target.checked)} className="w-4 h-4 text-blue-600 rounded border-slate-300" />
-                <span className="font-semibold text-slate-700">Enable QR Code Generation</span>
-              </label>
-              <p className="text-[11px] text-slate-400 mt-1 ml-7">Appends a scannable QR code to all generated tickets and receipts.</p>
-            </div>
-
-            <div>
-              <h4 className="text-sm font-bold text-slate-700 mb-3 border-b pb-2">Rename Fields</h4>
-              <div className="flex items-center justify-between bg-slate-50 p-4 rounded-lg border border-slate-100">
-                <div>
-                  <p className="text-xs font-bold text-slate-700">BOE Number</p>
-                  <p className="text-[10px] text-slate-400">Default tracking identifier</p>
-                </div>
-                <input value={boeLabel} onChange={e => setBoeLabel(e.target.value)} placeholder="e.g. Work Order, Shipping ID" className="w-48 rounded-lg border border-slate-200 px-3 py-1.5 text-xs outline-none" />
-              </div>
-            </div>
-
-            <div>
-              <h4 className="text-sm font-bold text-slate-700 mb-3 border-b pb-2">Mandatory / Optional Fields</h4>
-              <label className="flex items-center gap-3 text-sm cursor-pointer">
-                <input type="checkbox" checked={remarksOptional} onChange={e => setRemarksOptional(e.target.checked)} className="w-4 h-4 text-blue-600 rounded border-slate-300" />
-                <span className="font-semibold text-slate-700">Make "Remarks" field Optional</span>
-              </label>
-              <p className="text-[11px] text-slate-400 mt-1 ml-7">If unchecked, operators will be forced to enter remarks for every ticket.</p>
-            </div>
-
-            <div className="flex justify-end mt-4">
-              <button onClick={handleSaveModules} disabled={busy} className="rounded-lg bg-blue-600 px-6 py-2.5 text-xs font-bold text-white hover:bg-blue-700">
-                Save Configuration
-              </button>
-            </div>
-          </div>
-        </Panel>
-      )}
-
-      {activeTab === "license" && (
-        <Panel className="p-8 bg-white shadow-sm max-w-xl">
-          <h3 className="mb-6 text-base font-extrabold text-slate-800 flex items-center gap-2">
-            <Briefcase className="text-blue-600" size={20} />
-            License Information
-          </h3>
-          
-          {currentTenant ? (
-            <div className="flex flex-col gap-6">
-              <div className="bg-slate-50 border border-slate-100 p-5 rounded-xl text-center">
-                <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">Current Plan</p>
-                <p className="text-2xl font-black text-blue-600">{currentTenant.plan}</p>
-                <div className="mt-3 inline-flex items-center px-3 py-1 rounded-full bg-green-100 text-green-700 text-[10px] font-bold uppercase tracking-wide">
-                  {currentTenant.status}
-                </div>
-              </div>
-              
-              <div className="grid grid-cols-2 gap-4">
-                <div className="border border-slate-100 rounded-lg p-4">
-                  <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Expiry Date</p>
-                  <p className="text-sm font-bold text-slate-800">{new Date(currentTenant.expiryDate).toLocaleDateString(undefined, { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' })}</p>
-                </div>
-                <div className="border border-slate-100 rounded-lg p-4">
-                  <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Operator Seats</p>
-                  <p className="text-sm font-bold text-slate-800">{tenantOperators.length} used of {currentTenant.seats} allowed</p>
-                </div>
-                <div className="border border-slate-100 rounded-lg p-4 col-span-2 bg-slate-50">
-                  <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">License Key</p>
-                  <p className="text-sm font-mono font-bold text-slate-800 tracking-wider">{currentTenant.licenseKey}</p>
-                </div>
-              </div>
-              
-              <p className="text-xs text-slate-400 text-center mt-4">
-                To upgrade your plan, increase seats, or extend expiry, please contact the Super Admin.
-              </p>
-            </div>
-          ) : (
-            <p className="text-sm text-slate-500">No active license found.</p>
-          )}
-        </Panel>
-      )}
-
-      {activeTab === "reports" && (
-        <Panel className="p-8 bg-white shadow-sm max-w-3xl">
-          <h3 className="mb-6 text-base font-extrabold text-slate-800">Generate Custom Reports</h3>
-          
-          <div className="flex flex-col gap-8">
-            <div className="grid grid-cols-2 gap-6">
-              <div>
-                <label className="mb-1 block text-xs font-bold text-slate-600">START DATE (OPTIONAL)</label>
-                <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-2 text-sm" />
-              </div>
-              <div>
-                <label className="mb-1 block text-xs font-bold text-slate-600">END DATE (OPTIONAL)</label>
-                <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-2 text-sm" />
-              </div>
-            </div>
-
-            <div>
-              <label className="mb-3 block text-xs font-bold text-slate-600 uppercase">SELECT MODULES TO INCLUDE</label>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                {["Entry", "Billing", "Loading", "Exit"].map(mod => (
-                  <label key={mod} className={`flex items-center justify-center p-3 rounded-lg border cursor-pointer transition-colors ${repModules.includes(mod) ? "bg-blue-50 border-blue-200 text-blue-700" : "bg-slate-50 border-slate-200 text-slate-600"}`}>
-                    <input type="checkbox" checked={repModules.includes(mod)} onChange={() => toggleReportModule(mod)} className="sr-only" />
-                    <span className="text-xs font-bold">{mod} Data</span>
-                  </label>
-                ))}
-              </div>
-            </div>
-
-            <div className="flex justify-end border-t pt-6 mt-2">
-              <button onClick={handleGenerateReport} className="flex items-center gap-2 rounded-lg bg-emerald-600 px-6 py-3 text-sm font-bold text-white hover:bg-emerald-700 transition-colors shadow-sm">
-                <Download size={16} /> Download Excel / CSV
-              </button>
-            </div>
-          </div>
-        </Panel>
-      )}
-
-      {activeTab === "data" && (
-        <Panel className="p-8 bg-white shadow-sm max-w-3xl">
-          <h3 className="mb-6 text-base font-extrabold text-slate-800 flex items-center gap-2">
-            <Database className="text-blue-600" size={20} />
-            Data Management
-          </h3>
-          
-          <div className="flex flex-col gap-8">
-            <div className="rounded-xl border border-red-100 bg-red-50/50 p-6">
-              <h4 className="text-sm font-bold text-red-700 mb-2 flex items-center gap-2">
-                <RotateCcw size={16} />
-                Reset System Data
-              </h4>
-              <p className="text-xs text-red-600 mb-6">
-                Warning: This will permanently delete all tickets, bills, activity logs, and revert the system state back to the initial demo seed data. System configurations and user accounts will remain intact. This action cannot be undone.
-              </p>
-              
-              <Dialog>
-                <DialogTrigger render={
-                  <button className="flex items-center gap-2 rounded-lg bg-red-600 px-6 py-2.5 text-xs font-bold text-white hover:bg-red-700 transition-colors shadow-sm">
-                    <Trash2 size={16} /> Delete All Data
-                  </button>
-                } />
-                <DialogContent>
-                  <DialogHeader>
-                    <DialogTitle>Are you absolutely sure?</DialogTitle>
-                    <DialogDescription>
-                      This action cannot be undone. This will permanently delete all current tickets and reset the demo data.
-                    </DialogDescription>
-                  </DialogHeader>
-                  <DialogFooter className="mt-4 flex gap-3 sm:justify-end">
-                    <DialogClose render={
-                      <button className="rounded-lg px-4 py-2 text-sm font-bold text-slate-600 hover:bg-slate-100 transition-colors">
-                        Cancel
-                      </button>
-                    } />
-                    <DialogClose render={
-                      <button 
-                        onClick={async () => {
-                          setBusy(true);
-                          await reset();
-                          setBusy(false);
-                        }}
-                        className="rounded-lg bg-red-600 px-4 py-2 text-sm font-bold text-white hover:bg-red-700 transition-colors"
-                      >
-                        Yes, Reset Data
-                      </button>
-                    } />
-                  </DialogFooter>
-                </DialogContent>
-              </Dialog>
-            </div>
-          </div>
-        </Panel>
       )}
     </div>
   );

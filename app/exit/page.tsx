@@ -17,7 +17,7 @@ import {
 import { Panel } from "@/components/panel";
 import { Pill } from "@/components/pill";
 import { QrCode } from "@/components/qr-code";
-import { filterBySearch, useStore } from "@/lib/store";
+import { filterBySearch, tenantHeaders, useStore } from "@/lib/store";
 import { durationBetween, fmtTime } from "@/lib/format";
 import {
   DropdownMenu,
@@ -116,7 +116,7 @@ export default function ExitPage() {
 
     // 2. Hit the server for fresh state (handles stale cache)
     try {
-      const res = await fetch("/api/state", { cache: "no-store" });
+      const res = await fetch("/api/state", { cache: "no-store", headers: tenantHeaders() });
       if (!res.ok) return null;
       const freshState = await res.json();
       const freshQueue = (freshState.tickets || []).filter(

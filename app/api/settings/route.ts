@@ -6,6 +6,7 @@ export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
   try {
+    const tenantId = req.headers.get("x-tenant-id") ?? undefined;
     const body = await req.json().catch(() => ({}));
     const { 
       terminalName, maxActiveBays, timezone, 
@@ -49,7 +50,7 @@ export async function POST(req: Request) {
       ...(companyGst !== undefined && { companyGst }),
       ...(logoUrl !== undefined && { logoUrl }),
       ...(formCustomization !== undefined && { formCustomization }),
-    });
+    }, tenantId);
 
     return NextResponse.json({ state });
   } catch (e) {

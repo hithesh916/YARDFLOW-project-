@@ -10,7 +10,7 @@ import { fmtTime, fmtDate, pad, getLocalDateString } from "@/lib/format";
 import { printBillingToken } from "@/lib/print-token";
 import type { Ticket } from "@/lib/types";
 import { ChevronDown, ChevronUp } from "lucide-react";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion, AnimatePresence } from "motion/react";
 
 export default function BillingPage() {
   const tickets = useStore((s) => s.tickets);

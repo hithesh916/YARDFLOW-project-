@@ -3,6 +3,7 @@ import { updateRolePermissions } from "@/lib/db";
 
 export async function POST(req: Request) {
   try {
+    const callerTenant = req.headers.get("x-tenant-id") ?? undefined;
     const body = await req.json();
     const { role, allowedPaths } = body;
 
@@ -10,7 +11,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Missing or invalid fields" }, { status: 400 });
     }
 
-    const state = await updateRolePermissions(role, allowedPaths);
+    const state = await updateRolePermissions(role, allowedPaths, callerTenant);
     return NextResponse.json(state);
   } catch (err) {
     return NextResponse.json(
