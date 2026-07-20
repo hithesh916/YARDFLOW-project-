@@ -360,10 +360,6 @@ export default function SuperAdminHub() {
             {successCreds && (
               <div className="rounded-xl border border-emerald-100 bg-emerald-50/50 p-5 mt-2 flex flex-col gap-3">
                 <div className="flex justify-between border-b border-emerald-100 pb-2">
-                  <span className="text-xs font-bold text-slate-500 uppercase">Login URL</span>
-                  <span className="text-sm font-extrabold text-slate-800">https://{successCreds.domain}</span>
-                </div>
-                <div className="flex justify-between border-b border-emerald-100 pb-2">
                   <span className="text-xs font-bold text-slate-500 uppercase">Username</span>
                   <span className="text-sm font-extrabold text-slate-800">{successCreds.username}</span>
                 </div>

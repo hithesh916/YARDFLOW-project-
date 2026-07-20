@@ -77,6 +77,7 @@ export default function AdminPage() {
   const tenants = useStore((s) => s.tenants);
   const currentUser = useStore((s) => s.currentUser);
   const updateSettings = useStore((s) => s.updateSettings);
+  const reset = useStore((s) => s.reset);
 
   const createOperator = useStore((s) => s.createOperator);
   const deleteOperator = useStore((s) => s.deleteOperator);
@@ -87,10 +88,11 @@ export default function AdminPage() {
     : tenants[0];
 
   const tenantOperators = operators.filter(o => 
-    o.tenantId === currentTenant?.id || (!o.tenantId && currentTenant?.id === tenants[0]?.id)
+    (o.tenantId === currentTenant?.id || (!o.tenantId && currentTenant?.id === tenants[0]?.id)) && 
+    o.username !== "admin"
   );
 
-  const [activeTab, setActiveTab] = useSessionStorage<"company" | "users" | "modules" | "license" | "reports">("admin_activeTab", "company");
+  const [activeTab, setActiveTab] = useSessionStorage<"company" | "users" | "modules" | "license" | "reports" | "data">("admin_activeTab", "company");
 
   // Terminal Settings
   const [companyName, setCompanyName] = useSessionStorage("admin_companyName", "");
@@ -135,7 +137,7 @@ export default function AdminPage() {
       companyName: companyName.trim(),
       companyAddress: companyAddress.trim(),
       companyContact: companyContact.trim(),
-      logoUrl: logoUrl ? logoUrl.trim() : (settings?.logoUrl || ""),
+      logoUrl: logoUrl === "removed" ? "" : (logoUrl ? logoUrl.trim() : (settings?.logoUrl || "")),
     });
     setBusy(false);
     if (ok) {
@@ -258,7 +260,8 @@ export default function AdminPage() {
           { id: "users", icon: Users, label: "User Management" },
           { id: "modules", icon: Settings, label: "Module Customization" },
           { id: "license", icon: CreditCard, label: "License Info" },
-          { id: "reports", icon: Download, label: "Reports" }
+          { id: "reports", icon: Download, label: "Reports" },
+          { id: "data", icon: Database, label: "Data Management" }
         ].map(tab => (
           <button
             key={tab.id}
@@ -285,6 +288,7 @@ export default function AdminPage() {
             <div>
               <label className="mb-1 block text-xs font-bold text-slate-600">COMPANY LOGO (UPLOAD FILE)</label>
               <input
+                id="logo-upload"
                 type="file"
                 accept="image/*"
                 onChange={e => {
@@ -299,7 +303,22 @@ export default function AdminPage() {
                 }}
                 className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-2 text-sm"
               />
-              {(logoUrl || settings?.logoUrl) && <img src={logoUrl || settings?.logoUrl} alt="Logo Preview" className="h-12 mt-2 object-contain" />}
+              {(logoUrl !== "removed" && (logoUrl || settings?.logoUrl)) ? (
+                <div className="mt-2 flex flex-col items-start gap-2">
+                  <img src={logoUrl || settings?.logoUrl} alt="Logo Preview" className="h-12 object-contain" />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setLogoUrl("removed");
+                      const input = document.getElementById("logo-upload") as HTMLInputElement;
+                      if (input) input.value = "";
+                    }}
+                    className="text-xs font-bold text-red-500 hover:text-red-700 hover:underline"
+                  >
+                    Remove Image
+                  </button>
+                </div>
+              ) : null}
             </div>
             <div>
               <label className="mb-1 block text-xs font-bold text-slate-600">COMPANY ADDRESS</label>
@@ -497,6 +516,62 @@ export default function AdminPage() {
               <button onClick={handleGenerateReport} className="flex items-center gap-2 rounded-lg bg-emerald-600 px-6 py-3 text-sm font-bold text-white hover:bg-emerald-700 transition-colors shadow-sm">
                 <Download size={16} /> Download Excel / CSV
               </button>
+            </div>
+          </div>
+        </Panel>
+      )}
+
+      {activeTab === "data" && (
+        <Panel className="p-8 bg-white shadow-sm max-w-3xl">
+          <h3 className="mb-6 text-base font-extrabold text-slate-800 flex items-center gap-2">
+            <Database className="text-blue-600" size={20} />
+            Data Management
+          </h3>
+          
+          <div className="flex flex-col gap-8">
+            <div className="rounded-xl border border-red-100 bg-red-50/50 p-6">
+              <h4 className="text-sm font-bold text-red-700 mb-2 flex items-center gap-2">
+                <RotateCcw size={16} />
+                Reset System Data
+              </h4>
+              <p className="text-xs text-red-600 mb-6">
+                Warning: This will permanently delete all tickets, bills, activity logs, and revert the system state back to the initial demo seed data. System configurations and user accounts will remain intact. This action cannot be undone.
+              </p>
+              
+              <Dialog>
+                <DialogTrigger asChild>
+                  <button className="flex items-center gap-2 rounded-lg bg-red-600 px-6 py-2.5 text-xs font-bold text-white hover:bg-red-700 transition-colors shadow-sm">
+                    <Trash2 size={16} /> Delete All Data
+                  </button>
+                </DialogTrigger>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>Are you absolutely sure?</DialogTitle>
+                    <DialogDescription>
+                      This action cannot be undone. This will permanently delete all current tickets and reset the demo data.
+                    </DialogDescription>
+                  </DialogHeader>
+                  <DialogFooter className="mt-4 flex gap-3 sm:justify-end">
+                    <DialogClose asChild>
+                      <button className="rounded-lg px-4 py-2 text-sm font-bold text-slate-600 hover:bg-slate-100 transition-colors">
+                        Cancel
+                      </button>
+                    </DialogClose>
+                    <DialogClose asChild>
+                      <button 
+                        onClick={async () => {
+                          setBusy(true);
+                          await reset();
+                          setBusy(false);
+                        }}
+                        className="rounded-lg bg-red-600 px-4 py-2 text-sm font-bold text-white hover:bg-red-700 transition-colors"
+                      >
+                        Yes, Reset Data
+                      </button>
+                    </DialogClose>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
             </div>
           </div>
         </Panel>

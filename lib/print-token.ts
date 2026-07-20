@@ -574,13 +574,13 @@ export async function printLoadingToken(ticket: Ticket, targetWindow?: Window): 
     </div>
     <div class="token-badge">
       <div class="lbl">LOADING TOKEN</div>
-      <div class="val">L-${String(ticket.loadingSerial ?? ticket.serial).padStart(3, "0")}</div>
+      <div class="val">L-${String(ticket.billingSerial ?? ticket.serial).padStart(3, "0")}</div>
     </div>
     <div class="eyebrow">Loading Dispatch Pass</div>
     <div class="divider"></div>
     <div class="rows">
       ${row("WORK ORDER NO", ticket.workOrder || "N/A")}
-      ${row("BILLING TOKEN NO", ticket.manualBillingToken || (ticket.billingSerial ? `B-${String(ticket.billingSerial).padStart(3, "0")}` : `B-${String(ticket.serial).padStart(3, "0")}`))}
+      ${row("BILLING TOKEN NO", ticket.manualBillingToken || `B-${String(ticket.billingSerial ?? ticket.serial).padStart(3, "0")}`)}
       ${row("GATE TOKEN NO", ticket.createdSource === "billing" ? "N/A" : (ticket.manualGateToken || `G-${String(ticket.serial).padStart(3, "0")}`))}
       ${row("VEHICLE NO", ticket.createdSource === "billing" ? "N/A" : ticket.vehicle)}
       ${row("REMARKS", ticket.loadingRemarks || "—")}
@@ -638,13 +638,13 @@ export async function printLoadingTokens(tickets: Ticket[], targetWindow?: Windo
         </div>
         <div class="token-badge">
           <div class="lbl">LOADING TOKEN</div>
-          <div class="val">L-${String(ticket.loadingSerial ?? ticket.serial).padStart(3, "0")}</div>
+          <div class="val">L-${String(ticket.billingSerial ?? ticket.serial).padStart(3, "0")}</div>
         </div>
         <div class="eyebrow">Loading Dispatch Pass</div>
         <div class="divider"></div>
         <div class="rows">
           ${row("WORK ORDER NO", ticket.workOrder || "N/A")}
-          ${row("BILLING TOKEN NO", ticket.manualBillingToken || (ticket.billingSerial ? `B-${String(ticket.billingSerial).padStart(3, "0")}` : `B-${String(ticket.serial).padStart(3, "0")}`))}
+          ${row("BILLING TOKEN NO", ticket.manualBillingToken || `B-${String(ticket.billingSerial ?? ticket.serial).padStart(3, "0")}`)}
           ${row("GATE TOKEN NO", ticket.manualGateToken || `G-${String(ticket.serial).padStart(3, "0")}`)}
           ${row("VEHICLE NO", ticket.createdSource === "billing" ? "N/A" : ticket.vehicle)}
           ${row("REMARKS", ticket.loadingRemarks || "—")}

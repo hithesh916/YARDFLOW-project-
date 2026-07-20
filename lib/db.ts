@@ -303,15 +303,17 @@ export async function createTicket(input: {
 
     const todaySerials = l.tickets
       .filter((t) => {
-        return getTodayString(timezone, t.entryTime) === todayStr;
+        return getTodayString(timezone, t.entryTime) === todayStr && t.createdSource !== "billing";
       })
       .map((t) => t.serial);
 
-    const serial = todaySerials.length > 0 ? Math.max(...todaySerials) + 1 : 1;
+    const serial = input.createdSource === "billing" ? 0 : (todaySerials.length > 0 ? Math.max(...todaySerials) + 1 : 1);
     const datePart = todayStr.replace(/-/g, "");
     const id = `TK-${datePart}-${serial}`;
 
-    l.counters.serial = serial;
+    if (input.createdSource !== "billing") {
+      l.counters.serial = serial;
+    }
     if (l.counters.boe === undefined) {
       l.counters.boe = (l.counters as any).job ?? 1000;
     }

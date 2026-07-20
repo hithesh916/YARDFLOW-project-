@@ -93,14 +93,11 @@ export default function LoadingPage() {
         }
         setAgent(matched.billingAgent || matched.agent);
         setRemarks(matched.loadingRemarks || "");
-        // Gate Token is null/empty for billing-direct vehicles
-        if (matched.status === "awaiting_billing") {
-          setGateToken("");
-          setBillingToken("");
-        } else {
-          setGateToken(`G-${String(matched.serial).padStart(3, "0")}`);
-          setBillingToken(`B-${String(matched.billingSerial ?? matched.serial).padStart(3, "0")}`);
-        }
+        const gToken = matched.createdSource === "billing" ? "N/A" : `G-${String(matched.serial).padStart(3, "0")}`;
+        const bToken = matched.status === "awaiting_billing" ? "" : `B-${String(matched.billingSerial ?? matched.serial).padStart(3, "0")}`;
+        
+        setGateToken(gToken);
+        setBillingToken(bToken);
         setMatchedTicket(matched);
       }
     } else {
@@ -109,7 +106,7 @@ export default function LoadingPage() {
       const boes = selectedTickets.map((t) => t.boe).join(", ");
       const workOrders = selectedTickets.map((t) => t.workOrder || "").filter(Boolean).join(", ");
       const gateTokens = selectedTickets
-        .map((t) => t.status === "awaiting_billing" ? "N/A" : `G-${String(t.serial).padStart(3, "0")}`)
+        .map((t) => t.createdSource === "billing" ? "N/A" : `G-${String(t.serial).padStart(3, "0")}`)
         .join(", ");
       const billingTokens = selectedTickets
         .map((t) => t.status === "awaiting_billing" ? "PENDING" : `B-${String(t.billingSerial ?? t.serial).padStart(3, "0")}`)
@@ -215,19 +212,10 @@ export default function LoadingPage() {
       setAgent(matched.billingAgent || matched.agent);
       setRemarks(matched.loadingRemarks || "");
       if (field !== "gateToken") {
-        // Gate Token is null/empty for billing-direct vehicles
-        if (matched.status === "awaiting_billing") {
-          setGateToken("");
-        } else {
-          setGateToken(`G-${String(matched.serial).padStart(3, "0")}`);
-        }
+        setGateToken(matched.createdSource === "billing" ? "N/A" : `G-${String(matched.serial).padStart(3, "0")}`);
       }
       if (field !== "billingToken") {
-        if (matched.status === "awaiting_billing") {
-          setBillingToken("");
-        } else {
-          setBillingToken(`B-${String(matched.billingSerial ?? matched.serial).padStart(3, "0")}`);
-        }
+        setBillingToken(matched.status === "awaiting_billing" ? "" : `B-${String(matched.billingSerial ?? matched.serial).padStart(3, "0")}`);
       }
       setMatchedTicket(matched);
       setSelectedTicketIds([matched.id]);
@@ -308,7 +296,7 @@ export default function LoadingPage() {
 
     const printTickets: Ticket[] = [];
     for (const target of targetsToProcess) {
-      const gTokenVal = `G-${String(target.serial).padStart(3, "0")}`;
+      const gTokenVal = target.createdSource === "billing" ? "N/A" : `G-${String(target.serial).padStart(3, "0")}`;
       const bTokenVal = target.status === "awaiting_billing" ? "" : `B-${String(target.billingSerial ?? target.serial).padStart(3, "0")}`;
       
       const ok = await ticketAction(target.id, "complete-loading", {
@@ -575,7 +563,7 @@ export default function LoadingPage() {
                   </div>
                   {activeGateTickets
                     .map((t) => {
-                      const gNum = `G-${String(t.serial).padStart(3, "0")}`;
+                      const gNum = t.createdSource === "billing" ? "N/A" : `G-${String(t.serial).padStart(3, "0")}`;
                       const isChecked = selectedTicketIds.includes(t.id);
                       return (
                         <div
@@ -689,7 +677,7 @@ export default function LoadingPage() {
                 {tickets
                   .filter((t) => selectedTicketIds.includes(t.id))
                   .map((t) => {
-                    const gNum = `G-${String(t.serial).padStart(3, "0")}`;
+                    const gNum = t.createdSource === "billing" ? "N/A" : `G-${String(t.serial).padStart(3, "0")}`;
                     const bNum = t.status === "awaiting_billing" ? "B-PENDING" : `B-${String(t.billingSerial ?? t.serial).padStart(3, "0")}`;
                     return (
                       <div key={t.id} className="flex items-center justify-between bg-white dark:bg-slate-900 px-3 py-2 rounded-lg border border-slate-100 dark:border-slate-800 text-xs">
@@ -872,7 +860,7 @@ export default function LoadingPage() {
                       : (gateToken || (lastLoaded?.manualGateToken || (lastLoaded ? `G-${String(lastLoaded.serial).padStart(3, "0")}` : "—")))
                   }
                 />
-                <TokenRow k="BILLING TOKEN:" v={billingToken || (lastLoaded?.manualBillingToken || (lastLoaded ? `B-${String(lastLoaded.billingSerial ?? lastLoaded.serial).padStart(3, "0")}` : "—"))} />
+                <TokenRow k="BILLING TOKEN:" v={billingToken || (lastLoaded?.manualBillingToken || (lastLoaded ? `B-${String((lastLoaded.loadingSerial ?? lastLoaded.serial)).padStart(3, "0")}` : "—"))} />
                 <TokenRow
                   k="LOADING TIME:"
                   v={boe ? fmtTime(new Date().toISOString()) : (lastLoaded?.loadingEnd ? fmtTime(lastLoaded.loadingEnd) : "—")}
@@ -950,7 +938,7 @@ export default function LoadingPage() {
                   >
                     <div className="flex flex-col items-start">
                       <span className="font-extrabold text-[12px] text-slate-800 dark:text-slate-100">{t.boe}</span>
-                      <span className="text-[10px] text-slate-400 mt-0.5">SN L-{String(t.loadingSerial ?? t.serial).padStart(3, "0")}</span>
+                      <span className="text-[10px] text-slate-400 mt-0.5">SN L-{String(t.billingSerial ?? t.serial).padStart(3, "0")}</span>
                       <span className="text-[9px] text-slate-400 font-medium truncate max-w-[120px]">{t.loadingAgent || t.agent}</span>
                     </div>
                     <div className="flex flex-col items-end gap-1.5 shrink-0">
