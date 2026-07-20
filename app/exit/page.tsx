@@ -60,27 +60,37 @@ export default function ExitPage() {
     .slice(0, 5);
 
   function findTicket(code: string) {
-    const q = code.trim().replace(/\s+/g, " ").toLowerCase();
+    const raw = code.trim();
+    const q = raw.replace(/\s+/g, " ").toLowerCase();
     if (!q) return null;
+
+    // 1️⃣ PRIORITY: Direct ticket.id match (this is what the loading pass QR encodes)
+    const byId = fullExitQueue.find((t) => t.id.toLowerCase() === q);
+    if (byId) return byId;
+
+    // 2️⃣ Also try partial UUID match (QR sometimes wraps extra chars)
+    const byIdPartial = fullExitQueue.find((t) => q.includes(t.id.toLowerCase()) || t.id.toLowerCase().includes(q));
+    if (byIdPartial) return byIdPartial;
+
+    // 3️⃣ Fallback: token / vehicle / BOE matching
     return fullExitQueue.find((t) => {
       const lSerial = t.loadingSerial ?? t.serial;
       const bSerial = t.billingSerial ?? t.serial;
       const lToken = `l-${String(lSerial).padStart(3, "0")}`;
       const lTokenRaw = `l-${lSerial}`;
-      
+
       const gToken = t.createdSource === "billing" && (!t.serial || t.serial === 0) ? "" : `g-${String(t.serial).padStart(3, "0")}`;
       const gTokenRaw = `g-${t.serial}`;
-      
+
       const bToken = t.status === "awaiting_billing" ? "" : `b-${String(bSerial).padStart(3, "0")}`;
       const bTokenRaw = `b-${bSerial}`;
-      
+
       const mGate = t.manualGateToken?.toLowerCase();
       const mBill = t.manualBillingToken?.toLowerCase();
 
       return (
         t.vehicle.toLowerCase() === q ||
         t.vehicle.toLowerCase().replace(/\s+/g, "") === q.replace(/\s+/g, "") ||
-        t.id.toLowerCase() === q ||
         t.boe.toLowerCase() === q ||
         t.boe.toLowerCase().replace(/\s+/g, "") === q.replace(/\s+/g, "") ||
         lToken === q ||
@@ -92,20 +102,60 @@ export default function ExitPage() {
         (t.workOrder && t.workOrder.toLowerCase() === q) ||
         (t.workOrder && t.workOrder.toLowerCase().replace(/\s+/g, "") === q.replace(/\s+/g, "")) ||
         q.includes(t.vehicle.toLowerCase()) ||
-        q.replace(/\s+/g, "").includes(t.vehicle.toLowerCase().replace(/\s+/g, "")) ||
-        q.includes(t.id.toLowerCase())
+        q.replace(/\s+/g, "").includes(t.vehicle.toLowerCase().replace(/\s+/g, ""))
       );
     });
   }
 
-  function verifyManual() {
-    const found = findTicket(manualId);
-    if (found) {
-      setExitSelected(found.id);
+  async function verifyManual() {
+    const input = manualId.trim();
+    if (!input) return;
+
+    // 1. Try cached state
+    const fromCache = findTicket(input);
+    if (fromCache) {
+      setExitSelected(fromCache.id);
       setManualId("");
-      toast.success(`Vehicle verified for exit: ${found.vehicle}`);
-    } else {
-      toast.error("No exit-ready vehicle matches that ID or Token No.");
+      toast.success(`✅ Verified: ${fromCache.vehicle} — ready for exit`);
+      return;
+    }
+
+    // 2. Fetch fresh state
+    try {
+      const res = await fetch("/api/state", { cache: "no-store" });
+      if (res.ok) {
+        const freshState = await res.json();
+        const freshExitQueue = (freshState.tickets || []).filter(
+          (t: any) => t.status === "awaiting_exit"
+        );
+        const q = input.toLowerCase();
+        let found = freshExitQueue.find((t: any) => t.id.toLowerCase() === q);
+        if (!found) found = freshExitQueue.find((t: any) => q.includes(t.id.toLowerCase()));
+        if (!found) found = freshExitQueue.find((t: any) => {
+          const lToken = `l-${String(t.loadingSerial ?? t.serial).padStart(3, "0")}`;
+          const bToken = `b-${String(t.billingSerial ?? t.serial).padStart(3, "0")}`;
+          return (
+            t.vehicle.toLowerCase() === q ||
+            t.boe.toLowerCase() === q ||
+            lToken === q ||
+            bToken === q ||
+            (t.manualGateToken?.toLowerCase() === q) ||
+            (t.manualBillingToken?.toLowerCase() === q) ||
+            (t.workOrder?.toLowerCase() === q)
+          );
+        });
+
+        if (found) {
+          useStore.setState({ tickets: freshState.tickets });
+          setExitSelected(found.id);
+          setManualId("");
+          toast.success(`✅ Verified: ${found.vehicle} — ready for exit`);
+        } else {
+          toast.error(`❌ No exit-ready vehicle matches: "${input}" (${freshExitQueue.length} in queue)`);
+        }
+      }
+    } catch {
+      toast.error("Could not verify — check your connection.");
     }
   }
 
@@ -149,24 +199,71 @@ export default function ExitPage() {
     }
   }
 
-  function handleScannedCode(code: string, scannerInstance?: any) {
-    const found = findTicket(code);
+  async function handleScannedCode(code: string, scannerInstance?: any) {
+    // Stop the camera first
     const activeScanner = scannerInstance || qrScanner;
     if (activeScanner && activeScanner.isScanning) {
-      activeScanner.stop().then(() => {
-        setScanning(false);
-        setQrScanner(null);
-      }).catch((e: any) => console.error("Failed to stop scanner", e));
-    } else {
-      setScanning(false);
+      try { await activeScanner.stop(); } catch (e) { console.error("Failed to stop scanner", e); }
+    }
+    setScanning(false);
+    setQrScanner(null);
+
+    const scannedRaw = code.trim();
+    toast.info(`Scanned: ${scannedRaw}`, { duration: 2000 });
+
+    // 1. Try cached state first (fast)
+    const fromCache = findTicket(scannedRaw);
+    if (fromCache) {
+      setExitSelected(fromCache.id);
+      setManualId("");
+      toast.success(`✅ Verified: ${fromCache.vehicle} — ready for exit`);
+      return;
     }
 
-    if (found) {
-      setExitSelected(found.id);
-      setManualId("");
-      toast.success(`[CAMERA SCAN] Scanned successfully: ${found.vehicle}`);
-    } else {
-      toast.error(`Scanned code "${code}" did not match any exit-ready vehicles.`);
+    // 2. Fetch fresh state from server (handles stale cache)
+    try {
+      const res = await fetch("/api/state", { cache: "no-store" });
+      if (res.ok) {
+        const freshState = await res.json();
+        const freshExitQueue: typeof tickets = (freshState.tickets || []).filter(
+          (t: any) => t.status === "awaiting_exit"
+        );
+
+        const q = scannedRaw.toLowerCase();
+
+        // Priority search on fresh data
+        let found = freshExitQueue.find((t: any) => t.id.toLowerCase() === q);
+        if (!found) found = freshExitQueue.find((t: any) => q.includes(t.id.toLowerCase()));
+        if (!found) found = freshExitQueue.find((t: any) => {
+          const lToken = `l-${String(t.loadingSerial ?? t.serial).padStart(3, "0")}`;
+          const bToken = `b-${String(t.billingSerial ?? t.serial).padStart(3, "0")}`;
+          return (
+            t.vehicle.toLowerCase() === q ||
+            t.boe.toLowerCase() === q ||
+            lToken === q ||
+            `l-${t.loadingSerial ?? t.serial}` === q ||
+            bToken === q ||
+            (t.manualGateToken?.toLowerCase() === q) ||
+            (t.manualBillingToken?.toLowerCase() === q) ||
+            (t.workOrder?.toLowerCase() === q)
+          );
+        });
+
+        if (found) {
+          // Update store with fresh data and select the ticket
+          useStore.setState({ tickets: freshState.tickets });
+          setExitSelected(found.id);
+          setManualId("");
+          toast.success(`✅ Verified: ${found.vehicle} — ready for exit`);
+        } else {
+          toast.error(
+            `❌ No exit-ready vehicle found for: "${scannedRaw}"\n(${freshExitQueue.length} vehicle(s) in exit queue)`,
+            { duration: 5000 }
+          );
+        }
+      }
+    } catch (err) {
+      toast.error("Could not verify scan — check your connection.");
     }
   }
 
@@ -304,7 +401,7 @@ export default function ExitPage() {
               <div className="mx-auto mt-4 flex h-20 w-20 items-center justify-center">
                 {selected ? (
                   <QrCode
-                    value={`YARDFLOW|EXIT|${selected.vehicle}|${selected.invoice ?? ""}`}
+                    value={selected.id}
                     size={80}
                   />
                 ) : (
