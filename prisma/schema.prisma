@@ -1,0 +1,165 @@
+// YARDFLOW database schema (Phase 2: real DB, replaces the JSON file store).
+// Provider is MySQL/MariaDB so it runs on cPanel's local database.
+//
+// Multi-tenant-ready by design: operational tables (Ticket/Alert/ActivityEntry/
+// Counter/Settings) carry a `tenantId`. Today everything lives under a single
+// default workspace (see DEFAULT_TENANT in lib/db.ts); enforcing per-tenant
+// isolation later is a query-filter change, not a migration.
+
+generator client {
+  provider      = "prisma-client-js"
+  // "native" for local dev; "rhel-openssl-3.0.x" is Vercel's serverless runtime,
+  // so the query engine binary ships in the deploy (else a runtime "engine not
+  // found" error on Vercel).
+  binaryTargets = ["native", "rhel-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+enum TicketStatus {
+  awaiting_loading
+  awaiting_billing
+  awaiting_exit
+  exited
+  held
+}
+
+enum ActivityAction {
+  entry
+  loading_complete
+  loading_skip
+  billing_complete
+  billing_skip
+  exit
+  hold
+  alert_ack
+  reset
+}
+
+// SaaS client company. Managed by the superadmin.
+model Tenant {
+  id            String   @id
+  name          String
+  domain        String
+  licenseKey    String
+  plan          String
+  status        String
+  onboardedDate String
+  expiryDate    String
+  seats         Int
+  modules       Json
+  createdAt     DateTime @default(now())
+}
+
+// Login account (superadmin, admins, gate/billing/loading/exit operators).
+// `passcode` is still stored in the clear in this phase to keep the existing
+// client-side login working; it becomes a bcrypt hash when server-side auth
+// lands (Phase 3).
+model Operator {
+  id           String  @id
+  name         String
+  username     String  @unique
+  passcode     String
+  role         String
+  tenantId     String?
+  isFirstLogin Boolean @default(false)
+
+  @@index([tenantId])
+}
+
+// Which nav paths a role may access.
+model RolePermission {
+  role         String @id
+  allowedPaths Json
+}
+
+// A vehicle moving through the yard lifecycle. `queuePos` preserves FIFO order
+// (skip actions push a ticket to the back by bumping this).
+model Ticket {
+  id                 String       @id
+  tenantId           String
+  queuePos           Int          @default(0)
+  serial             Int
+  billingSerial      Int?
+  loadingSerial      Int?
+  vehicle            String
+  boe                String
+  agent              String
+  cargo              String
+  status             TicketStatus
+  bay                String
+  remarks            String?      @db.Text
+  entryTime          String
+  loadingEnd         String?
+  invoice            String?
+  exitTime           String?
+  holdReason         String?      @db.Text
+  paymentStatus      String?
+  createdSource      String?
+  billingAgent       String?
+  billingRemarks     String?      @db.Text
+  billingTime        String?
+  loadingAgent       String?
+  loadingRemarks     String?      @db.Text
+  manualGateToken    String?
+  manualBillingToken String?
+  workOrder          String?
+  createdAt          DateTime     @default(now())
+
+  @@index([tenantId])
+  @@index([tenantId, queuePos])
+}
+
+model Alert {
+  id           Int     @id @default(autoincrement())
+  tenantId     String
+  message      String  @db.Text
+  acknowledged Boolean @default(false)
+  createdAt    String
+
+  @@index([tenantId])
+}
+
+// Append-only audit trail. Read back newest-first, capped at 500 (see lib/db.ts).
+model ActivityEntry {
+  id       String         @id
+  tenantId String
+  at       String
+  action   ActivityAction
+  ticketId String?
+  serial   Int?
+  vehicle  String?
+  detail   String?        @db.Text
+
+  @@index([tenantId])
+  @@index([tenantId, at])
+}
+
+// Per-tenant daily-resetting serial counters + the day marker that drives the
+// midnight reset. One row per tenant (keyed by tenantId).
+model Counter {
+  tenantId      String  @id
+  serial        Int     @default(0)
+  billingSerial Int     @default(0)
+  loadingSerial Int     @default(0)
+  boe           Int     @default(1000)
+  lastResetDate String?
+}
+
+// Per-tenant system settings (one row per tenant).
+model Settings {
+  tenantId          String  @id
+  terminalName      String  @default("")
+  maxActiveBays     Int     @default(20)
+  timezone          String  @default("Asia/Kolkata")
+  companyName       String?
+  companyAddress    String? @db.Text
+  companyContact    String?
+  companyEmail      String?
+  companyGst        String?
+  logoUrl           String? @db.Text
+  formCustomization Json?
+}

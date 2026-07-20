@@ -1,102 +1,43 @@
-// Phase-1 data layer. Persists to plain JSON files in /transactions so the
-// ledger + audit trail are inspectable during the client demo. Every mutation
-// is a read-modify-write guarded by an in-process lock. When the project is
-// approved, replace the body of these functions with Prisma calls — the
-// signatures and the API routes on top of them stay exactly the same.
+// Data layer — backed by a real database via Prisma (Phase 2). This replaces the
+// original JSON file store. Every exported function keeps the exact same
+// signature and return shape it had in the file-store version, so the 9 API
+// routes and the client store are unaffected.
+//
+// Operational data (tickets, alerts, activity, counters, settings) lives under a
+// single default workspace (DEFAULT_TENANT). tenants/operators/permissions are
+// global (managed by the superadmin), exactly as before. Per-tenant isolation is
+// a future query-filter change — the schema already carries tenantId.
 
-import { promises as fs } from "fs";
-import path from "path";
-import os from "os";
+import prisma from "./prisma";
 import { buildSeed, pick, BAYS, CARGO } from "./seed";
 import type {
+  ActivityAction,
   ActivityEntry,
-  Ledger,
-  Ticket,
-  YardState,
+  Alert,
+  OperatorAccount,
+  RolePermission,
   SystemSettings,
+  TenantClient,
+  Ticket,
+  TicketStatus,
+  YardState,
 } from "./types";
 
-const DATA_DIR = process.env.VERCEL
-  ? path.join(os.tmpdir(), "transactions")
-  : path.join(process.cwd(), "transactions");
-const LEDGER_FILE = path.join(DATA_DIR, "ledger.json");
-const ACTIVITY_FILE = path.join(DATA_DIR, "activity-log.json");
+// All operational data lives under this workspace for now. Phase 3 swaps this
+// for the authenticated user's tenantId.
+const DEFAULT_TENANT = "default";
 const ACTIVITY_LIMIT = 500;
 
-/* ---------- id + lock ---------- */
-function rid(): string {
-  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-}
-
-// Serialize all writes so concurrent requests can't clobber the file.
-let chain: Promise<unknown> = Promise.resolve();
-function locked<T>(fn: () => Promise<T>): Promise<T> {
-  const run = chain.then(fn, fn);
-  chain = run.then(
-    () => {},
-    () => {},
-  );
-  return run;
-}
-
-/* ---------- low-level fs ---------- */
-async function ensureDir() {
-  await fs.mkdir(DATA_DIR, { recursive: true });
-}
-
-function buildSeedActivity(tickets: Ticket[]): ActivityEntry[] {
-  const acts: ActivityEntry[] = [];
-  for (const t of tickets) {
-    acts.push({
-      id: rid(),
-      at: t.entryTime,
-      action: "entry",
-      ticketId: t.id,
-      serial: t.serial,
-      vehicle: t.vehicle,
-      detail: `${t.boe} · ${t.agent}`,
-    });
-    if (t.invoice)
-      acts.push({
-        id: rid(),
-        at: t.entryTime,
-        action: "billing_complete",
-        ticketId: t.id,
-        serial: t.serial,
-        vehicle: t.vehicle,
-        detail: t.invoice,
-      });
-    if (t.loadingEnd)
-      acts.push({
-        id: rid(),
-        at: t.loadingEnd,
-        action: "loading_complete",
-        ticketId: t.id,
-        serial: t.serial,
-        vehicle: t.vehicle,
-      });
-    if (t.exitTime)
-      acts.push({
-        id: rid(),
-        at: t.exitTime,
-        action: "exit",
-        ticketId: t.id,
-        serial: t.serial,
-        vehicle: t.vehicle,
-      });
-  }
-  return acts.sort((a, b) => b.at.localeCompare(a.at));
-}
-
-const DEFAULT_SETTINGS = {
+const DEFAULT_SETTINGS: SystemSettings = {
   terminalName: "",
   maxActiveBays: 20,
   timezone: "Asia/Kolkata",
 };
 
-// Memory cache fallbacks for serverless environments where fs is read-only or ephemeral
-let memoryLedger: Ledger | null = null;
-let memoryActivity: ActivityEntry[] | null = null;
+/* ---------- id + date helpers (unchanged behavior) ---------- */
+function rid(): string {
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
 
 function getTodayString(timezone: string = "Asia/Kolkata", dateInput?: Date | string): string {
   try {
@@ -118,173 +59,249 @@ function getTodayString(timezone: string = "Asia/Kolkata", dateInput?: Date | st
   }
 }
 
-async function checkAndTriggerDailyReset(l: Ledger) {
-  const tz = l.settings?.timezone || "Asia/Kolkata";
-  const todayStr = getTodayString(tz);
-  
-  if (!l.lastResetDate) {
-    l.lastResetDate = todayStr;
-    await writeLedger(l);
-    return;
-  }
-  
-  if (l.lastResetDate !== todayStr) {
-    console.log(`[DAILY RESET] Resetting yard data for new day: ${todayStr} (last: ${l.lastResetDate})`);
-    l.tickets = [];
-    l.alerts = [];
-    l.counters.serial = 0;
-    l.counters.billingSerial = 0;
-    l.counters.loadingSerial = 0;
-    l.lastResetDate = todayStr;
-    await writeLedger(l);
-    
-    const resetEntry = {
-      id: rid(),
-      at: new Date().toISOString(),
-      action: "reset" as const,
-      detail: `Automatic daily reset at midnight (${todayStr})`,
-    };
-    
-    try {
-      const currentActivity = await readActivity();
-      const nextActivity = [resetEntry, ...currentActivity].slice(0, ACTIVITY_LIMIT);
-      memoryActivity = nextActivity;
-      await fs.writeFile(ACTIVITY_FILE, JSON.stringify(nextActivity, null, 2));
-    } catch (e) {
-      console.warn("Failed to update activity log on daily reset:", e);
-    }
-  }
+/* ---------- row -> domain mappers ---------- */
+type TicketRow = Awaited<ReturnType<typeof prisma.ticket.findFirstOrThrow>>;
+type AlertRow = Awaited<ReturnType<typeof prisma.alert.findFirstOrThrow>>;
+type ActivityRow = Awaited<ReturnType<typeof prisma.activityEntry.findFirstOrThrow>>;
+type TenantRow = Awaited<ReturnType<typeof prisma.tenant.findFirstOrThrow>>;
+type OperatorRow = Awaited<ReturnType<typeof prisma.operator.findFirstOrThrow>>;
+type PermissionRow = Awaited<ReturnType<typeof prisma.rolePermission.findFirstOrThrow>>;
+type SettingsRow = Awaited<ReturnType<typeof prisma.settings.findFirstOrThrow>>;
+
+function toTicket(r: TicketRow): Ticket {
+  return {
+    id: r.id,
+    serial: r.serial,
+    billingSerial: r.billingSerial ?? undefined,
+    loadingSerial: r.loadingSerial ?? undefined,
+    vehicle: r.vehicle,
+    boe: r.boe,
+    agent: r.agent,
+    cargo: r.cargo,
+    status: r.status as TicketStatus,
+    bay: r.bay,
+    remarks: r.remarks ?? undefined,
+    entryTime: r.entryTime,
+    loadingEnd: r.loadingEnd ?? null,
+    invoice: r.invoice ?? null,
+    exitTime: r.exitTime ?? null,
+    holdReason: r.holdReason ?? null,
+    paymentStatus: (r.paymentStatus ?? null) as Ticket["paymentStatus"],
+    createdSource: (r.createdSource ?? null) as Ticket["createdSource"],
+    billingAgent: r.billingAgent ?? null,
+    billingRemarks: r.billingRemarks ?? null,
+    billingTime: r.billingTime ?? null,
+    loadingAgent: r.loadingAgent ?? null,
+    loadingRemarks: r.loadingRemarks ?? null,
+    manualGateToken: r.manualGateToken ?? undefined,
+    manualBillingToken: r.manualBillingToken ?? undefined,
+    workOrder: r.workOrder ?? null,
+  };
 }
 
-async function readLedger(): Promise<Ledger> {
-  try {
-    const content = await fs.readFile(LEDGER_FILE, "utf8");
-    const l = JSON.parse(content) as Ledger;
-    const seed = buildSeed();
-    if (!l.settings) {
-      l.settings = { ...DEFAULT_SETTINGS };
-    }
-    if (!l.tenants) {
-      l.tenants = seed.tenants;
-    }
-    if (!l.operators) {
-      l.operators = seed.operators;
-    }
-    if (!l.permissions) {
-      l.permissions = seed.permissions;
-    }
-    // Initialize missing counters for backwards compatibility
-    if (l.counters.billingSerial === undefined) l.counters.billingSerial = 0;
-    if (l.counters.loadingSerial === undefined) l.counters.loadingSerial = 0;
-    memoryLedger = l;
-    await checkAndTriggerDailyReset(l);
-    return l;
-  } catch (err) {
-    if (memoryLedger) {
-      await checkAndTriggerDailyReset(memoryLedger);
-      return memoryLedger;
-    }
+function toAlert(r: AlertRow): Alert {
+  return {
+    id: r.id,
+    message: r.message,
+    acknowledged: r.acknowledged,
+    createdAt: r.createdAt,
+  };
+}
+
+function toActivity(r: ActivityRow): ActivityEntry {
+  return {
+    id: r.id,
+    at: r.at,
+    action: r.action as ActivityAction,
+    ticketId: r.ticketId ?? undefined,
+    serial: r.serial ?? undefined,
+    vehicle: r.vehicle ?? undefined,
+    detail: r.detail ?? undefined,
+  };
+}
+
+function toTenant(r: TenantRow): TenantClient {
+  return {
+    id: r.id,
+    name: r.name,
+    domain: r.domain,
+    licenseKey: r.licenseKey,
+    plan: r.plan as TenantClient["plan"],
+    status: r.status as TenantClient["status"],
+    onboardedDate: r.onboardedDate,
+    expiryDate: r.expiryDate,
+    seats: r.seats,
+    modules: (r.modules as string[]) ?? [],
+  };
+}
+
+function toOperator(r: OperatorRow): OperatorAccount {
+  return {
+    id: r.id,
+    name: r.name,
+    username: r.username,
+    passcode: r.passcode,
+    role: r.role,
+    tenantId: r.tenantId ?? undefined,
+    isFirstLogin: r.isFirstLogin,
+  };
+}
+
+function toPermission(r: PermissionRow): RolePermission {
+  return {
+    role: r.role,
+    allowedPaths: (r.allowedPaths as string[]) ?? [],
+  };
+}
+
+function toSettings(r: SettingsRow): SystemSettings {
+  return {
+    terminalName: r.terminalName,
+    maxActiveBays: r.maxActiveBays,
+    timezone: r.timezone,
+    companyName: r.companyName ?? undefined,
+    companyAddress: r.companyAddress ?? undefined,
+    companyContact: r.companyContact ?? undefined,
+    companyEmail: r.companyEmail ?? undefined,
+    companyGst: r.companyGst ?? undefined,
+    logoUrl: r.logoUrl ?? undefined,
+    formCustomization: (r.formCustomization as SystemSettings["formCustomization"]) ?? undefined,
+  };
+}
+
+/* ---------- lazy seed + daily reset ---------- */
+// Mirrors the old file store's "auto-seed on first run": if the default
+// workspace has no Settings row yet, plant the seed operators/permissions/
+// settings/counter so the app works with zero manual setup.
+let seedChecked = false;
+async function ensureSeeded() {
+  if (seedChecked) return;
+  const existing = await prisma.settings.findUnique({ where: { tenantId: DEFAULT_TENANT } });
+  if (!existing) {
     const seed = buildSeed();
     const tz = seed.settings?.timezone || "Asia/Kolkata";
-    seed.lastResetDate = getTodayString(tz);
-    memoryLedger = seed;
     try {
-      await ensureDir();
-      await fs.writeFile(LEDGER_FILE, JSON.stringify(seed, null, 2));
+      await prisma.$transaction([
+        prisma.settings.upsert({
+          where: { tenantId: DEFAULT_TENANT },
+          update: {},
+          create: { tenantId: DEFAULT_TENANT, ...seed.settings },
+        }),
+        prisma.counter.upsert({
+          where: { tenantId: DEFAULT_TENANT },
+          update: {},
+          create: { tenantId: DEFAULT_TENANT, ...seed.counters, lastResetDate: getTodayString(tz) },
+        }),
+        ...seed.operators.map((o) =>
+          prisma.operator.upsert({
+            where: { id: o.id },
+            update: {},
+            create: {
+              id: o.id,
+              name: o.name,
+              username: o.username,
+              passcode: o.passcode,
+              role: o.role,
+              tenantId: o.tenantId ?? null,
+              isFirstLogin: o.isFirstLogin ?? false,
+            },
+          }),
+        ),
+        ...seed.permissions.map((p) =>
+          prisma.rolePermission.upsert({
+            where: { role: p.role },
+            update: {},
+            create: { role: p.role, allowedPaths: p.allowedPaths },
+          }),
+        ),
+      ]);
     } catch (e) {
-      console.warn("Failed to write ledger file to disk, running in memory-only mode:", e);
+      // A concurrent first request may have seeded already — that's fine.
+      console.warn("ensureSeeded skipped (likely already seeded):", e);
     }
-    return seed;
+  }
+  seedChecked = true;
+}
+
+// Lazy midnight reset, keyed on the tenant timezone — same semantics as the old
+// checkAndTriggerDailyReset: wipe tickets/alerts and zero the three daily serials
+// (boe is preserved) when the day rolls over.
+async function checkDailyReset() {
+  const [counter, settings] = await Promise.all([
+    prisma.counter.findUnique({ where: { tenantId: DEFAULT_TENANT } }),
+    prisma.settings.findUnique({ where: { tenantId: DEFAULT_TENANT } }),
+  ]);
+  if (!counter) return;
+  const tz = settings?.timezone || "Asia/Kolkata";
+  const todayStr = getTodayString(tz);
+
+  if (!counter.lastResetDate) {
+    await prisma.counter.update({ where: { tenantId: DEFAULT_TENANT }, data: { lastResetDate: todayStr } });
+    return;
+  }
+
+  if (counter.lastResetDate !== todayStr) {
+    console.log(`[DAILY RESET] Resetting yard data for new day: ${todayStr} (last: ${counter.lastResetDate})`);
+    await prisma.$transaction([
+      prisma.ticket.deleteMany({ where: { tenantId: DEFAULT_TENANT } }),
+      prisma.alert.deleteMany({ where: { tenantId: DEFAULT_TENANT } }),
+      prisma.counter.update({
+        where: { tenantId: DEFAULT_TENANT },
+        data: { serial: 0, billingSerial: 0, loadingSerial: 0, lastResetDate: todayStr },
+      }),
+      prisma.activityEntry.create({
+        data: {
+          id: rid(),
+          tenantId: DEFAULT_TENANT,
+          at: new Date().toISOString(),
+          action: "reset",
+          detail: `Automatic daily reset at midnight (${todayStr})`,
+        },
+      }),
+    ]);
   }
 }
 
-async function writeLedger(l: Ledger) {
-  memoryLedger = l;
-  try {
-    await ensureDir();
-    await fs.writeFile(LEDGER_FILE, JSON.stringify(l, null, 2));
-  } catch (e) {
-    console.warn("Failed to write ledger file to disk, updating memory-only:", e);
-  }
+// Run before every read/write, matching the old readLedger side effects.
+async function prep() {
+  await ensureSeeded();
+  await checkDailyReset();
 }
 
-async function readActivity(): Promise<ActivityEntry[]> {
-  try {
-    const content = await fs.readFile(ACTIVITY_FILE, "utf8");
-    const acts = JSON.parse(content) as ActivityEntry[];
-    memoryActivity = acts;
-    return acts;
-  } catch {
-    if (memoryActivity) {
-      return memoryActivity;
-    }
-    const defaultActs = memoryLedger ? buildSeedActivity(memoryLedger.tickets) : [];
-    memoryActivity = defaultActs;
-    try {
-      await ensureDir();
-      await fs.writeFile(ACTIVITY_FILE, JSON.stringify(defaultActs, null, 2));
-    } catch (e) {
-      console.warn("Failed to write default activity file to disk:", e);
-    }
-    return defaultActs;
-  }
+/* ---------- state assembly ---------- */
+async function buildState(): Promise<YardState> {
+  const [tickets, alerts, activity, settingsRow, tenants, operators, permissions] = await Promise.all([
+    prisma.ticket.findMany({ where: { tenantId: DEFAULT_TENANT }, orderBy: [{ queuePos: "asc" }, { createdAt: "asc" }] }),
+    prisma.alert.findMany({ where: { tenantId: DEFAULT_TENANT }, orderBy: { id: "asc" } }),
+    prisma.activityEntry.findMany({ where: { tenantId: DEFAULT_TENANT }, orderBy: { at: "desc" }, take: ACTIVITY_LIMIT }),
+    prisma.settings.findUnique({ where: { tenantId: DEFAULT_TENANT } }),
+    prisma.tenant.findMany({ orderBy: { createdAt: "asc" } }),
+    prisma.operator.findMany({ orderBy: { id: "asc" } }),
+    prisma.rolePermission.findMany(),
+  ]);
+  return {
+    tickets: tickets.map(toTicket),
+    alerts: alerts.map(toAlert),
+    activity: activity.map(toActivity),
+    settings: settingsRow ? toSettings(settingsRow) : { ...DEFAULT_SETTINGS },
+    tenants: tenants.map(toTenant),
+    operators: operators.map(toOperator),
+    permissions: permissions.map(toPermission),
+  };
 }
 
-async function appendActivity(entries: ActivityEntry[]) {
-  if (!entries.length) return;
-  const current = await readActivity();
-  const next = [...entries, ...current].slice(0, ACTIVITY_LIMIT);
-  memoryActivity = next;
-  try {
-    await ensureDir();
-    await fs.writeFile(ACTIVITY_FILE, JSON.stringify(next, null, 2));
-  } catch (e) {
-    console.warn("Failed to write updated activity file to disk:", e);
-  }
+// Interactive-transaction client type (for helpers used inside $transaction).
+type Tx = Parameters<Parameters<typeof prisma.$transaction>[0]>[0];
+
+async function nextQueuePos(tx: Tx): Promise<number> {
+  const agg = await tx.ticket.aggregate({ where: { tenantId: DEFAULT_TENANT }, _max: { queuePos: true } });
+  return (agg._max.queuePos ?? 0) + 1;
 }
-
-/* ---------- mutate wrapper ---------- */
-type Logger = (a: Omit<ActivityEntry, "id" | "at">) => void;
-
-async function mutate(
-  fn: (l: Ledger, log: Logger) => void,
-): Promise<YardState> {
-  return locked(async () => {
-    const ledger = await readLedger();
-    const acts: ActivityEntry[] = [];
-    const log: Logger = (a) =>
-      acts.push({ id: rid(), at: new Date().toISOString(), ...a });
-    fn(ledger, log);
-    await writeLedger(ledger);
-    await appendActivity(acts);
-    const activity = await readActivity();
-    return {
-      tickets: ledger.tickets,
-      alerts: ledger.alerts,
-      activity,
-      settings: ledger.settings || { ...DEFAULT_SETTINGS },
-      tenants: ledger.tenants || [],
-      operators: ledger.operators || [],
-      permissions: ledger.permissions || [],
-    };
-  });
-}
-
-const find = (l: Ledger, id: string) => l.tickets.find((t) => t.id === id);
 
 /* ---------- public API ---------- */
 export async function getState(): Promise<YardState> {
-  const ledger = await readLedger();
-  const activity = await readActivity();
-  return {
-    tickets: ledger.tickets,
-    alerts: ledger.alerts,
-    activity,
-    settings: ledger.settings || { ...DEFAULT_SETTINGS },
-    tenants: ledger.tenants || [],
-    operators: ledger.operators || [],
-    permissions: ledger.permissions || [],
-  };
+  await prep();
+  return buildState();
 }
 
 export async function createTicket(input: {
@@ -295,292 +312,451 @@ export async function createTicket(input: {
   remarks?: string;
   createdSource?: "entry" | "billing";
 }): Promise<{ state: YardState; ticket: Ticket | null }> {
-  let created: Ticket | null = null;
-  const state = await mutate((l, log) => {
-    const timezone = l.settings?.timezone || "Asia/Kolkata";
+  await prep();
+  const created = await prisma.$transaction(async (tx) => {
+    const settings = await tx.settings.findUnique({ where: { tenantId: DEFAULT_TENANT } });
+    const timezone = settings?.timezone || "Asia/Kolkata";
     const now = new Date();
     const todayStr = getTodayString(timezone, now);
 
-    const todaySerials = l.tickets
-      .filter((t) => {
-        return getTodayString(timezone, t.entryTime) === todayStr && t.createdSource !== "billing";
-      })
+    const allTickets = await tx.ticket.findMany({ where: { tenantId: DEFAULT_TENANT } });
+    const todaySerials = allTickets
+      .filter((t) => getTodayString(timezone, t.entryTime) === todayStr && t.createdSource !== "billing")
       .map((t) => t.serial);
 
-    const serial = input.createdSource === "billing" ? 0 : (todaySerials.length > 0 ? Math.max(...todaySerials) + 1 : 1);
+    const serial = input.createdSource === "billing" ? 0 : todaySerials.length > 0 ? Math.max(...todaySerials) + 1 : 1;
     const datePart = todayStr.replace(/-/g, "");
-    const id = input.createdSource === "billing" 
-      ? `B-${datePart}-${Math.floor(1000 + Math.random() * 9000)}`
-      : `TK-${datePart}-${serial}`;
+    const id =
+      input.createdSource === "billing"
+        ? `B-${datePart}-${Math.floor(1000 + Math.random() * 9000)}`
+        : `TK-${datePart}-${serial}`;
 
-    if (input.createdSource !== "billing") {
-      l.counters.serial = serial;
-    }
-    if (l.counters.boe === undefined) {
-      l.counters.boe = (l.counters as any).job ?? 1000;
-    }
-    l.counters.boe += 1;
-
-    const t: Ticket = {
-      id,
-      serial,
-      vehicle: input.vehicle.trim().toUpperCase(),
-      boe: input.boe?.trim() || `BOE-${Math.floor(10000 + Math.random() * 90000)}`,
-      agent: input.agent?.trim() || "Unassigned",
-      cargo: input.cargo?.trim() || pick(CARGO),
-      status: "awaiting_billing",
-      bay: pick(BAYS),
-      remarks: input.remarks?.trim() || undefined,
-      entryTime: now.toISOString(),
-      loadingEnd: null,
-      invoice: null,
-      exitTime: null,
-      holdReason: null,
-      paymentStatus: "Not Paid",
-      createdSource: input.createdSource || "entry",
-    };
-    l.tickets.push(t);
-    created = t;
-    log({
-      action: "entry",
-      ticketId: t.id,
-      serial: t.serial,
-      vehicle: t.vehicle,
-      detail: `${t.boe} · ${t.agent}`,
+    const counter = await tx.counter.findUnique({ where: { tenantId: DEFAULT_TENANT } });
+    const newBoe = (counter?.boe ?? 1000) + 1;
+    await tx.counter.update({
+      where: { tenantId: DEFAULT_TENANT },
+      data: { boe: newBoe, ...(input.createdSource !== "billing" ? { serial } : {}) },
     });
+
+    const queuePos = await nextQueuePos(tx);
+    const ticket = await tx.ticket.create({
+      data: {
+        id,
+        tenantId: DEFAULT_TENANT,
+        queuePos,
+        serial,
+        vehicle: input.vehicle.trim().toUpperCase(),
+        boe: input.boe?.trim() || `BOE-${Math.floor(10000 + Math.random() * 90000)}`,
+        agent: input.agent?.trim() || "Unassigned",
+        cargo: input.cargo?.trim() || pick(CARGO),
+        status: "awaiting_billing",
+        bay: pick(BAYS),
+        remarks: input.remarks?.trim() || null,
+        entryTime: now.toISOString(),
+        loadingEnd: null,
+        invoice: null,
+        exitTime: null,
+        holdReason: null,
+        paymentStatus: "Not Paid",
+        createdSource: input.createdSource || "entry",
+      },
+    });
+
+    await tx.activityEntry.create({
+      data: {
+        id: rid(),
+        tenantId: DEFAULT_TENANT,
+        at: new Date().toISOString(),
+        action: "entry",
+        ticketId: ticket.id,
+        serial: ticket.serial,
+        vehicle: ticket.vehicle,
+        detail: `${ticket.boe} · ${ticket.agent}`,
+      },
+    });
+    return ticket;
   });
-  return { state, ticket: created };
+
+  const state = await buildState();
+  return { state, ticket: created ? toTicket(created) : null };
 }
 
-export function updateEntryForBillingTicket(
+export async function updateEntryForBillingTicket(
   id: string,
-  extra: { vehicle: string; remarks?: string; agent?: string }
+  extra: { vehicle: string; remarks?: string; agent?: string },
 ): Promise<YardState> {
-  return mutate((l, log) => {
-    const t = find(l, id);
-    if (t && t.createdSource === "billing" && (!t.serial || t.serial === 0)) {
-      const timezone = l.settings?.timezone || "Asia/Kolkata";
+  await prep();
+  await prisma.$transaction(async (tx) => {
+    const t = await tx.ticket.findUnique({ where: { id } });
+    if (t && t.tenantId === DEFAULT_TENANT && t.createdSource === "billing" && (!t.serial || t.serial === 0)) {
+      const settings = await tx.settings.findUnique({ where: { tenantId: DEFAULT_TENANT } });
+      const timezone = settings?.timezone || "Asia/Kolkata";
       const now = new Date();
       const todayStr = getTodayString(timezone, now);
 
-      const todaySerials = l.tickets
+      const allTickets = await tx.ticket.findMany({ where: { tenantId: DEFAULT_TENANT } });
+      const todaySerials = allTickets
         .filter((tk) => getTodayString(timezone, tk.entryTime) === todayStr && tk.serial > 0)
         .map((tk) => tk.serial);
-      
       const serial = todaySerials.length > 0 ? Math.max(...todaySerials) + 1 : 1;
-      l.counters.serial = serial;
 
-      t.serial = serial;
-      t.vehicle = extra.vehicle.trim().toUpperCase();
-      t.entryTime = now.toISOString();
-      t.createdSource = "entry"; // Promoted to an entry-sourced ticket
-      if (extra.remarks) t.remarks = extra.remarks.trim();
-      if (extra.agent) t.agent = extra.agent.trim();
-
-      log({
-        action: "entry",
-        ticketId: t.id,
-        serial: t.serial,
-        vehicle: t.vehicle,
-        detail: `Gate linked to pre-billed BOE: ${t.boe}`,
+      await tx.counter.update({ where: { tenantId: DEFAULT_TENANT }, data: { serial } });
+      await tx.ticket.update({
+        where: { id },
+        data: {
+          serial,
+          vehicle: extra.vehicle.trim().toUpperCase(),
+          entryTime: now.toISOString(),
+          createdSource: "entry",
+          ...(extra.remarks ? { remarks: extra.remarks.trim() } : {}),
+          ...(extra.agent ? { agent: extra.agent.trim() } : {}),
+        },
+      });
+      await tx.activityEntry.create({
+        data: {
+          id: rid(),
+          tenantId: DEFAULT_TENANT,
+          at: new Date().toISOString(),
+          action: "entry",
+          ticketId: t.id,
+          serial,
+          vehicle: extra.vehicle.trim().toUpperCase(),
+          detail: `Gate linked to pre-billed BOE: ${t.boe}`,
+        },
       });
     }
   });
+  return buildState();
 }
 
-export function completeLoading(
+export async function completeLoading(
   id: string,
-  extra?: { boe?: string; workOrder?: string; agent?: string; remarks?: string; gateToken?: string; billingToken?: string }
+  extra?: { boe?: string; workOrder?: string; agent?: string; remarks?: string; gateToken?: string; billingToken?: string },
 ): Promise<YardState> {
-  return mutate((l, log) => {
-    const t = find(l, id);
-    if (t && (t.status === "awaiting_loading" || t.status === "awaiting_billing")) {
-      if (l.counters.loadingSerial === undefined) l.counters.loadingSerial = 0;
-      // Guard against counter reset on serverless cold starts
-      const tz = l.settings?.timezone || "Asia/Kolkata";
+  await prep();
+  await prisma.$transaction(async (tx) => {
+    const t = await tx.ticket.findUnique({ where: { id } });
+    if (t && t.tenantId === DEFAULT_TENANT && (t.status === "awaiting_loading" || t.status === "awaiting_billing")) {
+      const settings = await tx.settings.findUnique({ where: { tenantId: DEFAULT_TENANT } });
+      const tz = settings?.timezone || "Asia/Kolkata";
       const todayStr = getTodayString(tz);
-      const maxExistingLoading = l.tickets
+
+      const counter = await tx.counter.findUnique({ where: { tenantId: DEFAULT_TENANT } });
+      let loadingSerial = counter?.loadingSerial ?? 0;
+
+      // Belt-and-suspenders: recover the true max from today's tickets.
+      const allTickets = await tx.ticket.findMany({ where: { tenantId: DEFAULT_TENANT } });
+      const maxExistingLoading = allTickets
         .filter((tk) => tk.loadingSerial != null && getTodayString(tz, tk.loadingEnd || tk.entryTime) === todayStr)
         .reduce((max, tk) => Math.max(max, tk.loadingSerial!), 0);
-      if (l.counters.loadingSerial < maxExistingLoading) {
-        l.counters.loadingSerial = maxExistingLoading;
-      }
-      l.counters.loadingSerial += 1;
-      t.loadingSerial = l.counters.loadingSerial;
-      t.status = "awaiting_exit";
-      t.loadingEnd = new Date().toISOString();
-      if (extra?.workOrder) t.workOrder = extra.workOrder;
-      t.loadingAgent = extra?.agent ? extra.agent.trim() : t.billingAgent || t.agent;
-      t.loadingRemarks = extra?.remarks ? extra.remarks.trim() : "";
-      if (extra?.gateToken) t.manualGateToken = extra.gateToken.trim();
-      if (extra?.billingToken) t.manualBillingToken = extra.billingToken.trim();
-      log({
-        action: "loading_complete",
-        ticketId: t.id,
-        serial: t.serial,
-        vehicle: t.vehicle,
+      if (loadingSerial < maxExistingLoading) loadingSerial = maxExistingLoading;
+      loadingSerial += 1;
+
+      await tx.counter.update({ where: { tenantId: DEFAULT_TENANT }, data: { loadingSerial } });
+      await tx.ticket.update({
+        where: { id },
+        data: {
+          loadingSerial,
+          status: "awaiting_exit",
+          loadingEnd: new Date().toISOString(),
+          ...(extra?.workOrder ? { workOrder: extra.workOrder } : {}),
+          loadingAgent: extra?.agent ? extra.agent.trim() : t.billingAgent || t.agent,
+          loadingRemarks: extra?.remarks ? extra.remarks.trim() : "",
+          ...(extra?.gateToken ? { manualGateToken: extra.gateToken.trim() } : {}),
+          ...(extra?.billingToken ? { manualBillingToken: extra.billingToken.trim() } : {}),
+        },
+      });
+      await tx.activityEntry.create({
+        data: {
+          id: rid(),
+          tenantId: DEFAULT_TENANT,
+          at: new Date().toISOString(),
+          action: "loading_complete",
+          ticketId: t.id,
+          serial: t.serial,
+          vehicle: t.vehicle,
+        },
       });
     }
   });
+  return buildState();
 }
 
-
-export function skipLoading(id: string): Promise<YardState> {
-  return mutate((l, log) => {
-    const i = l.tickets.findIndex((t) => t.id === id);
-    if (i >= 0) {
-      const [t] = l.tickets.splice(i, 1);
-      l.tickets.push(t);
-      log({
-        action: "loading_skip",
-        ticketId: t.id,
-        serial: t.serial,
-        vehicle: t.vehicle,
-        detail: "Re-queued to back of line",
+export async function skipLoading(id: string): Promise<YardState> {
+  await prep();
+  const t = await prisma.ticket.findUnique({ where: { id } });
+  if (t && t.tenantId === DEFAULT_TENANT) {
+    await prisma.$transaction(async (tx) => {
+      const pos = await nextQueuePos(tx);
+      await tx.ticket.update({ where: { id }, data: { queuePos: pos } });
+      await tx.activityEntry.create({
+        data: {
+          id: rid(),
+          tenantId: DEFAULT_TENANT,
+          at: new Date().toISOString(),
+          action: "loading_skip",
+          ticketId: t.id,
+          serial: t.serial,
+          vehicle: t.vehicle,
+          detail: "Re-queued to back of line",
+        },
       });
-    }
-  });
+    });
+  }
+  return buildState();
 }
 
-export function completeBilling(
+export async function completeBilling(
   id: string,
   invoice: string,
   paymentStatus?: "Paid" | "Not Paid",
   extra?: { boe?: string; agent?: string; cargo?: string; remarks?: string },
 ): Promise<YardState> {
-  return mutate((l, log) => {
-    const t = find(l, id);
-    if (t && t.status === "awaiting_billing") {
-      if (l.counters.billingSerial === undefined) l.counters.billingSerial = 0;
-      // Guard against counter reset on serverless cold starts:
-      // derive the true max from already-assigned billingSerial values on today's tickets
-      const tz = l.settings?.timezone || "Asia/Kolkata";
+  await prep();
+  await prisma.$transaction(async (tx) => {
+    const t = await tx.ticket.findUnique({ where: { id } });
+    if (t && t.tenantId === DEFAULT_TENANT && t.status === "awaiting_billing") {
+      const settings = await tx.settings.findUnique({ where: { tenantId: DEFAULT_TENANT } });
+      const tz = settings?.timezone || "Asia/Kolkata";
       const todayStr = getTodayString(tz);
-      const maxExisting = l.tickets
+
+      const counter = await tx.counter.findUnique({ where: { tenantId: DEFAULT_TENANT } });
+      let billingSerial = counter?.billingSerial ?? 0;
+
+      const allTickets = await tx.ticket.findMany({ where: { tenantId: DEFAULT_TENANT } });
+      const maxExisting = allTickets
         .filter((tk) => tk.billingSerial != null && getTodayString(tz, tk.billingTime || tk.entryTime) === todayStr)
         .reduce((max, tk) => Math.max(max, tk.billingSerial!), 0);
-      if (l.counters.billingSerial < maxExisting) {
-        l.counters.billingSerial = maxExisting;
-      }
-      l.counters.billingSerial += 1;
-      t.billingSerial = l.counters.billingSerial;
-      t.status = "awaiting_loading";
-      t.invoice = invoice.trim() || null;
-      t.paymentStatus = paymentStatus || "Paid";
-      t.billingTime = new Date().toISOString();
-      t.billingAgent = extra?.agent ? extra.agent.trim() : t.agent;
-      t.billingRemarks = extra?.remarks ? extra.remarks.trim() : "";
-      if (extra?.boe) t.boe = extra.boe;
-      if (extra?.cargo) t.cargo = extra.cargo;
-      log({
-        action: "billing_complete",
-        ticketId: t.id,
-        serial: t.serial,
-        vehicle: t.vehicle,
-        detail: t.invoice || "No invoice",
+      if (billingSerial < maxExisting) billingSerial = maxExisting;
+      billingSerial += 1;
+
+      const nextInvoice = invoice.trim() || null;
+      await tx.counter.update({ where: { tenantId: DEFAULT_TENANT }, data: { billingSerial } });
+      await tx.ticket.update({
+        where: { id },
+        data: {
+          billingSerial,
+          status: "awaiting_loading",
+          invoice: nextInvoice,
+          paymentStatus: paymentStatus || "Paid",
+          billingTime: new Date().toISOString(),
+          billingAgent: extra?.agent ? extra.agent.trim() : t.agent,
+          billingRemarks: extra?.remarks ? extra.remarks.trim() : "",
+          ...(extra?.boe ? { boe: extra.boe } : {}),
+          ...(extra?.cargo ? { cargo: extra.cargo } : {}),
+        },
+      });
+      await tx.activityEntry.create({
+        data: {
+          id: rid(),
+          tenantId: DEFAULT_TENANT,
+          at: new Date().toISOString(),
+          action: "billing_complete",
+          ticketId: t.id,
+          serial: t.serial,
+          vehicle: t.vehicle,
+          detail: nextInvoice || "No invoice",
+        },
       });
     }
   });
+  return buildState();
 }
 
-export function skipBilling(id: string): Promise<YardState> {
-  return mutate((l, log) => {
-    const i = l.tickets.findIndex((t) => t.id === id);
-    if (i >= 0) {
-      const [t] = l.tickets.splice(i, 1);
-      l.tickets.push(t);
-      log({
-        action: "billing_skip",
-        ticketId: t.id,
-        serial: t.serial,
-        vehicle: t.vehicle,
-        detail: "Re-queued to back of line",
+export async function skipBilling(id: string): Promise<YardState> {
+  await prep();
+  const t = await prisma.ticket.findUnique({ where: { id } });
+  if (t && t.tenantId === DEFAULT_TENANT) {
+    await prisma.$transaction(async (tx) => {
+      const pos = await nextQueuePos(tx);
+      await tx.ticket.update({ where: { id }, data: { queuePos: pos } });
+      await tx.activityEntry.create({
+        data: {
+          id: rid(),
+          tenantId: DEFAULT_TENANT,
+          at: new Date().toISOString(),
+          action: "billing_skip",
+          ticketId: t.id,
+          serial: t.serial,
+          vehicle: t.vehicle,
+          detail: "Re-queued to back of line",
+        },
       });
-    }
-  });
+    });
+  }
+  return buildState();
 }
 
-export function permitExit(id: string): Promise<YardState> {
-  return mutate((l, log) => {
-    const t = find(l, id);
-    if (t && t.status === "awaiting_exit") {
-      t.status = "exited";
-      t.exitTime = new Date().toISOString();
-      log({
-        action: "exit",
-        ticketId: t.id,
-        serial: t.serial,
-        vehicle: t.vehicle,
-        detail: t.invoice ?? undefined,
-      });
-    }
-  });
+export async function permitExit(id: string): Promise<YardState> {
+  await prep();
+  const t = await prisma.ticket.findUnique({ where: { id } });
+  if (t && t.tenantId === DEFAULT_TENANT && t.status === "awaiting_exit") {
+    await prisma.$transaction([
+      prisma.ticket.update({ where: { id }, data: { status: "exited", exitTime: new Date().toISOString() } }),
+      prisma.activityEntry.create({
+        data: {
+          id: rid(),
+          tenantId: DEFAULT_TENANT,
+          at: new Date().toISOString(),
+          action: "exit",
+          ticketId: t.id,
+          serial: t.serial,
+          vehicle: t.vehicle,
+          detail: t.invoice ?? undefined,
+        },
+      }),
+    ]);
+  }
+  return buildState();
 }
 
-export function holdVehicle(id: string, reason: string): Promise<YardState> {
-  return mutate((l, log) => {
-    const t = find(l, id);
-    if (t && t.status === "awaiting_exit") {
-      t.status = "held";
-      t.holdReason = reason.trim() || "Unspecified";
-      log({
-        action: "hold",
-        ticketId: t.id,
-        serial: t.serial,
-        vehicle: t.vehicle,
-        detail: t.holdReason,
-      });
-    }
-  });
+export async function holdVehicle(id: string, reason: string): Promise<YardState> {
+  await prep();
+  const t = await prisma.ticket.findUnique({ where: { id } });
+  if (t && t.tenantId === DEFAULT_TENANT && t.status === "awaiting_exit") {
+    const holdReason = reason.trim() || "Unspecified";
+    await prisma.$transaction([
+      prisma.ticket.update({ where: { id }, data: { status: "held", holdReason } }),
+      prisma.activityEntry.create({
+        data: {
+          id: rid(),
+          tenantId: DEFAULT_TENANT,
+          at: new Date().toISOString(),
+          action: "hold",
+          ticketId: t.id,
+          serial: t.serial,
+          vehicle: t.vehicle,
+          detail: holdReason,
+        },
+      }),
+    ]);
+  }
+  return buildState();
 }
 
-export function ackAlert(id: number): Promise<YardState> {
-  return mutate((l, log) => {
-    const a = l.alerts.find((x) => x.id === id);
-    if (a && !a.acknowledged) {
-      a.acknowledged = true;
-      log({ action: "alert_ack", detail: a.message });
-    }
-  });
+export async function ackAlert(id: number): Promise<YardState> {
+  await prep();
+  const a = await prisma.alert.findUnique({ where: { id } });
+  if (a && a.tenantId === DEFAULT_TENANT && !a.acknowledged) {
+    await prisma.$transaction([
+      prisma.alert.update({ where: { id }, data: { acknowledged: true } }),
+      prisma.activityEntry.create({
+        data: {
+          id: rid(),
+          tenantId: DEFAULT_TENANT,
+          at: new Date().toISOString(),
+          action: "alert_ack",
+          detail: a.message,
+        },
+      }),
+    ]);
+  }
+  return buildState();
 }
 
 export async function reset(): Promise<YardState> {
-  return locked(async () => {
-    const seed = buildSeed();
-    const tz = seed.settings?.timezone || "Asia/Kolkata";
-    seed.lastResetDate = getTodayString(tz);
-    await ensureDir();
-    await writeLedger(seed);
-    const activity = buildSeedActivity(seed.tickets);
-    activity.unshift({
-      id: rid(),
-      at: new Date().toISOString(),
-      action: "reset",
-      detail: "Demo data reset",
-    });
-    await fs.writeFile(ACTIVITY_FILE, JSON.stringify(activity, null, 2));
-    return {
-      tickets: seed.tickets,
-      alerts: seed.alerts,
-      activity,
-      settings: seed.settings || { ...DEFAULT_SETTINGS },
-      tenants: seed.tenants || [],
-      operators: seed.operators || [],
-      permissions: seed.permissions || [],
-    };
-  });
+  const seed = buildSeed();
+  const tz = seed.settings?.timezone || "Asia/Kolkata";
+  const todayStr = getTodayString(tz);
+  await prisma.$transaction([
+    prisma.ticket.deleteMany({ where: { tenantId: DEFAULT_TENANT } }),
+    prisma.alert.deleteMany({ where: { tenantId: DEFAULT_TENANT } }),
+    prisma.activityEntry.deleteMany({ where: { tenantId: DEFAULT_TENANT } }),
+    prisma.tenant.deleteMany({}),
+    prisma.operator.deleteMany({}),
+    prisma.rolePermission.deleteMany({}),
+    prisma.settings.upsert({
+      where: { tenantId: DEFAULT_TENANT },
+      update: {
+        terminalName: seed.settings.terminalName,
+        maxActiveBays: seed.settings.maxActiveBays,
+        timezone: seed.settings.timezone,
+        companyName: null,
+        companyAddress: null,
+        companyContact: null,
+        companyEmail: null,
+        companyGst: null,
+        logoUrl: null,
+        formCustomization: undefined,
+      },
+      create: { tenantId: DEFAULT_TENANT, ...seed.settings },
+    }),
+    prisma.counter.upsert({
+      where: { tenantId: DEFAULT_TENANT },
+      update: { serial: 0, billingSerial: 0, loadingSerial: 0, boe: seed.counters.boe, lastResetDate: todayStr },
+      create: { tenantId: DEFAULT_TENANT, ...seed.counters, lastResetDate: todayStr },
+    }),
+    ...seed.operators.map((o) =>
+      prisma.operator.create({
+        data: {
+          id: o.id,
+          name: o.name,
+          username: o.username,
+          passcode: o.passcode,
+          role: o.role,
+          tenantId: o.tenantId ?? null,
+          isFirstLogin: o.isFirstLogin ?? false,
+        },
+      }),
+    ),
+    ...seed.permissions.map((p) =>
+      prisma.rolePermission.create({ data: { role: p.role, allowedPaths: p.allowedPaths } }),
+    ),
+    prisma.activityEntry.create({
+      data: {
+        id: rid(),
+        tenantId: DEFAULT_TENANT,
+        at: new Date().toISOString(),
+        action: "reset",
+        detail: "Demo data reset",
+      },
+    }),
+  ]);
+  return buildState();
 }
 
-export function updateSettings(settings: Partial<SystemSettings>): Promise<YardState> {
-  return mutate((l) => {
-    l.settings = {
-      ...l.settings,
-      ...settings,
-      terminalName: settings.terminalName?.trim() || l.settings.terminalName,
-      maxActiveBays: Number(settings.maxActiveBays) || l.settings.maxActiveBays,
-      timezone: settings.timezone?.trim() || l.settings.timezone,
-    };
+export async function updateSettings(settings: Partial<SystemSettings>): Promise<YardState> {
+  await prep();
+  const cur = await prisma.settings.findUnique({ where: { tenantId: DEFAULT_TENANT } });
+  const base = cur ? toSettings(cur) : { ...DEFAULT_SETTINGS };
+
+  const data: Record<string, unknown> = {
+    terminalName: settings.terminalName?.trim() || base.terminalName,
+    maxActiveBays: Number(settings.maxActiveBays) || base.maxActiveBays,
+    timezone: settings.timezone?.trim() || base.timezone,
+  };
+  // Only touch optional fields the caller actually provided.
+  const optional: (keyof SystemSettings)[] = [
+    "companyName",
+    "companyAddress",
+    "companyContact",
+    "companyEmail",
+    "companyGst",
+    "logoUrl",
+    "formCustomization",
+  ];
+  for (const key of optional) {
+    if (key in settings) data[key] = settings[key] ?? null;
+  }
+
+  await prisma.settings.upsert({
+    where: { tenantId: DEFAULT_TENANT },
+    update: data,
+    create: {
+      tenantId: DEFAULT_TENANT,
+      terminalName: data.terminalName as string,
+      maxActiveBays: data.maxActiveBays as number,
+      timezone: data.timezone as string,
+      companyName: (data.companyName as string | null) ?? null,
+      companyAddress: (data.companyAddress as string | null) ?? null,
+      companyContact: (data.companyContact as string | null) ?? null,
+      companyEmail: (data.companyEmail as string | null) ?? null,
+      companyGst: (data.companyGst as string | null) ?? null,
+      logoUrl: (data.logoUrl as string | null) ?? null,
+      formCustomization: (data.formCustomization as SystemSettings["formCustomization"]) ?? undefined,
+    },
   });
+  return buildState();
 }
 
 /* ---------- SaaS Tenant Management ---------- */
@@ -593,79 +769,116 @@ export async function createTenant(input: {
   adminUsername?: string;
   adminPassword?: string;
 }): Promise<YardState> {
-  return mutate((l, log) => {
-    const tenantId = `ten-${Date.now()}`;
-    const dateStr = new Date().toISOString().split("T")[0];
-    const expDate = new Date();
-    expDate.setFullYear(expDate.getFullYear() + 1); // 1 year default
-    const expiryStr = expDate.toISOString().split("T")[0];
-    
-    const key = `YF-${input.name.replace(/[^a-zA-Z0-9]/g, "").slice(0, 4).toUpperCase()}-${Math.floor(1000 + Math.random() * 9000)}-${new Date().getFullYear()}`;
+  await prep();
+  const tenantId = `ten-${Date.now()}`;
+  const dateStr = new Date().toISOString().split("T")[0];
+  const expDate = new Date();
+  expDate.setFullYear(expDate.getFullYear() + 1);
+  const expiryStr = expDate.toISOString().split("T")[0];
+  const key = `YF-${input.name.replace(/[^a-zA-Z0-9]/g, "").slice(0, 4).toUpperCase()}-${Math.floor(1000 + Math.random() * 9000)}-${new Date().getFullYear()}`;
 
-    const newTenant = {
-      id: tenantId,
-      name: input.name,
-      domain: input.domain,
-      licenseKey: key,
-      plan: input.plan,
-      status: "Active" as const,
-      onboardedDate: dateStr,
-      expiryDate: expiryStr,
-      seats: input.seats,
-      modules: input.modules,
-    };
-    l.tenants = l.tenants || [];
-    l.tenants.push(newTenant);
-
+  await prisma.$transaction(async (tx) => {
+    await tx.tenant.create({
+      data: {
+        id: tenantId,
+        name: input.name,
+        domain: input.domain,
+        licenseKey: key,
+        plan: input.plan,
+        status: "Active",
+        onboardedDate: dateStr,
+        expiryDate: expiryStr,
+        seats: input.seats,
+        modules: input.modules,
+      },
+    });
     if (input.adminUsername && input.adminPassword) {
-      l.operators = l.operators || [];
-      l.operators.push({
-        id: `op-${Date.now()}`,
-        name: "System Admin",
-        username: input.adminUsername.trim().toLowerCase(),
-        passcode: input.adminPassword,
-        role: "Administrator",
-        tenantId: tenantId,
-        isFirstLogin: true,
+      await tx.operator.create({
+        data: {
+          id: `op-${Date.now()}`,
+          name: "System Admin",
+          username: input.adminUsername.trim().toLowerCase(),
+          passcode: input.adminPassword,
+          role: "Administrator",
+          tenantId,
+          isFirstLogin: true,
+        },
       });
     }
-
-    log({ action: "entry", detail: `Onboarded SaaS client: ${input.name}` });
+    await tx.activityEntry.create({
+      data: {
+        id: rid(),
+        tenantId: DEFAULT_TENANT,
+        at: new Date().toISOString(),
+        action: "entry",
+        detail: `Onboarded SaaS client: ${input.name}`,
+      },
+    });
   });
+  return buildState();
 }
 
 export async function updateTenantConfig(id: string, seats: number, modules: string[]): Promise<YardState> {
-  return mutate((l, log) => {
-    const t = l.tenants?.find((t) => t.id === id);
-    if (t) {
-      t.seats = seats;
-      t.modules = modules;
-      log({ action: "reset", detail: `Updated configuration for SaaS client: ${t.name}` });
-    }
-  });
+  await prep();
+  const t = await prisma.tenant.findUnique({ where: { id } });
+  if (t) {
+    await prisma.$transaction([
+      prisma.tenant.update({ where: { id }, data: { seats, modules } }),
+      prisma.activityEntry.create({
+        data: {
+          id: rid(),
+          tenantId: DEFAULT_TENANT,
+          at: new Date().toISOString(),
+          action: "reset",
+          detail: `Updated configuration for SaaS client: ${t.name}`,
+        },
+      }),
+    ]);
+  }
+  return buildState();
 }
 
 export async function extendTenantLicense(id: string, years: number): Promise<YardState> {
-  return mutate((l, log) => {
-    const t = l.tenants?.find((t) => t.id === id);
-    if (t) {
-      const currentExpiry = new Date(t.expiryDate);
-      currentExpiry.setFullYear(currentExpiry.getFullYear() + years);
-      t.expiryDate = currentExpiry.toISOString().split("T")[0];
-      t.status = "Active"; // reactivate if expired
-      log({ action: "reset", detail: `Extended license for ${t.name} by ${years} yr(s)` });
-    }
-  });
+  await prep();
+  const t = await prisma.tenant.findUnique({ where: { id } });
+  if (t) {
+    const currentExpiry = new Date(t.expiryDate);
+    currentExpiry.setFullYear(currentExpiry.getFullYear() + years);
+    const expiryStr = currentExpiry.toISOString().split("T")[0];
+    await prisma.$transaction([
+      prisma.tenant.update({ where: { id }, data: { expiryDate: expiryStr, status: "Active" } }),
+      prisma.activityEntry.create({
+        data: {
+          id: rid(),
+          tenantId: DEFAULT_TENANT,
+          at: new Date().toISOString(),
+          action: "reset",
+          detail: `Extended license for ${t.name} by ${years} yr(s)`,
+        },
+      }),
+    ]);
+  }
+  return buildState();
 }
 
 export async function deleteTenant(id: string): Promise<YardState> {
-  return mutate((l, log) => {
-    const t = l.tenants?.find((t) => t.id === id);
-    if (t) {
-      l.tenants = l.tenants.filter((x) => x.id !== id);
-      log({ action: "reset", detail: `Removed SaaS client: ${t.name}` });
-    }
-  });
+  await prep();
+  const t = await prisma.tenant.findUnique({ where: { id } });
+  if (t) {
+    await prisma.$transaction([
+      prisma.tenant.delete({ where: { id } }),
+      prisma.activityEntry.create({
+        data: {
+          id: rid(),
+          tenantId: DEFAULT_TENANT,
+          at: new Date().toISOString(),
+          action: "reset",
+          detail: `Removed SaaS client: ${t.name}`,
+        },
+      }),
+    ]);
+  }
+  return buildState();
 }
 
 /* ---------- Operator Management ---------- */
@@ -676,69 +889,107 @@ export async function createOperator(input: {
   role: string;
   tenantId?: string;
 }): Promise<YardState> {
-  return mutate((l, log) => {
-    l.operators = l.operators || [];
-    
-    const tenant = input.tenantId ? l.tenants.find(t => t.id === input.tenantId) : l.tenants?.[0];
-    const seatLimit = tenant?.seats || 5;
-    
-    const tenantOperators = l.operators.filter(o => 
-      o.tenantId === input.tenantId || (!o.tenantId && (!input.tenantId || input.tenantId === l.tenants?.[0]?.id))
-    );
+  await prep();
+  const tenants = await prisma.tenant.findMany({ orderBy: { createdAt: "asc" } });
+  const operators = await prisma.operator.findMany();
 
-    if (tenantOperators.length >= seatLimit) {
-      throw new Error(`Operator seat limit reached (${seatLimit}). Upgrade your license.`);
-    }
+  const tenant = input.tenantId ? tenants.find((t) => t.id === input.tenantId) : tenants[0];
+  const seatLimit = tenant?.seats || 5;
+  const firstTenantId = tenants[0]?.id;
+  const tenantOperators = operators.filter(
+    (o) => o.tenantId === input.tenantId || (!o.tenantId && (!input.tenantId || input.tenantId === firstTenantId)),
+  );
 
-    const newOp = {
-      id: `op-${Date.now()}`,
-      name: input.name,
-      username: input.username.trim().toLowerCase(),
-      passcode: input.passcode,
-      role: input.role,
-      tenantId: input.tenantId,
-      isFirstLogin: true,
-    };
-    if (!l.operators.some((o) => o.username === newOp.username)) {
-      l.operators.push(newOp);
-      log({ action: "reset", detail: `Registered operator: ${input.name} (${input.role})` });
-    }
-  });
+  if (tenantOperators.length >= seatLimit) {
+    throw new Error(`Operator seat limit reached (${seatLimit}). Upgrade your license.`);
+  }
+
+  const username = input.username.trim().toLowerCase();
+  if (!operators.some((o) => o.username === username)) {
+    await prisma.$transaction([
+      prisma.operator.create({
+        data: {
+          id: `op-${Date.now()}`,
+          name: input.name,
+          username,
+          passcode: input.passcode,
+          role: input.role,
+          tenantId: input.tenantId ?? null,
+          isFirstLogin: true,
+        },
+      }),
+      prisma.activityEntry.create({
+        data: {
+          id: rid(),
+          tenantId: DEFAULT_TENANT,
+          at: new Date().toISOString(),
+          action: "reset",
+          detail: `Registered operator: ${input.name} (${input.role})`,
+        },
+      }),
+    ]);
+  }
+  return buildState();
 }
 
 export async function deleteOperator(id: string): Promise<YardState> {
-  return mutate((l, log) => {
-    const op = l.operators?.find((o) => o.id === id);
-    if (op) {
-      l.operators = l.operators.filter((x) => x.id !== id);
-      log({ action: "reset", detail: `Removed operator: ${op.name}` });
-    }
-  });
+  await prep();
+  const op = await prisma.operator.findUnique({ where: { id } });
+  if (op) {
+    await prisma.$transaction([
+      prisma.operator.delete({ where: { id } }),
+      prisma.activityEntry.create({
+        data: {
+          id: rid(),
+          tenantId: DEFAULT_TENANT,
+          at: new Date().toISOString(),
+          action: "reset",
+          detail: `Removed operator: ${op.name}`,
+        },
+      }),
+    ]);
+  }
+  return buildState();
 }
 
 export async function changeOperatorPassword(username: string, passcode: string): Promise<YardState> {
-  return mutate((l, log) => {
-    const op = l.operators?.find((o) => o.username === username.trim().toLowerCase());
-    if (op) {
-      op.passcode = passcode;
-      op.isFirstLogin = false;
-      log({ action: "reset", detail: `Updated passcode for operator: ${op.name}` });
-    }
-  });
+  await prep();
+  const op = await prisma.operator.findFirst({ where: { username: username.trim().toLowerCase() } });
+  if (op) {
+    await prisma.$transaction([
+      prisma.operator.update({ where: { id: op.id }, data: { passcode, isFirstLogin: false } }),
+      prisma.activityEntry.create({
+        data: {
+          id: rid(),
+          tenantId: DEFAULT_TENANT,
+          at: new Date().toISOString(),
+          action: "reset",
+          detail: `Updated passcode for operator: ${op.name}`,
+        },
+      }),
+    ]);
+  }
+  return buildState();
 }
 
 /* ---------- Role Permissions Management ---------- */
 export async function updateRolePermissions(role: string, allowedPaths: string[]): Promise<YardState> {
-  return mutate((l, log) => {
-    l.permissions = l.permissions || [];
-    let perm = l.permissions.find((p) => p.role === role);
-    if (!perm) {
-      perm = { role, allowedPaths };
-      l.permissions.push(perm);
-    } else {
-      perm.allowedPaths = allowedPaths;
-    }
-    log({ action: "reset", detail: `Updated permissions grid for role: ${role}` });
-  });
+  await prep();
+  await prisma.$transaction([
+    prisma.rolePermission.upsert({
+      where: { role },
+      update: { allowedPaths },
+      create: { role, allowedPaths },
+    }),
+    prisma.activityEntry.create({
+      data: {
+        id: rid(),
+        tenantId: DEFAULT_TENANT,
+        at: new Date().toISOString(),
+        action: "reset",
+        detail: `Updated permissions grid for role: ${role}`,
+      },
+    }),
+  ]);
+  return buildState();
 }
-
