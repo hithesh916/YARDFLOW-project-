@@ -45,32 +45,67 @@ export default function ExitPage() {
     };
   }, [qrScanner]);
 
-  const queue = filterBySearch(tickets, search).filter(
-    (t) => t.status === "awaiting_exit",
-  );
+  const fullExitQueue = tickets.filter((t) => t.status === "awaiting_exit");
+  const queue = filterBySearch(fullExitQueue, search);
+
   const selectedId =
-    exitSelectedId && queue.some((t) => t.id === exitSelectedId)
+    exitSelectedId && fullExitQueue.some((t) => t.id === exitSelectedId)
       ? exitSelectedId
       : (queue[0]?.id ?? null);
-  const selected = queue.find((t) => t.id === selectedId) ?? null;
+  const selected = fullExitQueue.find((t) => t.id === selectedId) ?? null;
 
   const recentExits = [...tickets]
     .filter((t) => t.status === "exited")
     .sort((a, b) => (b.exitTime ?? "").localeCompare(a.exitTime ?? ""))
     .slice(0, 5);
 
+  function findTicket(code: string) {
+    const q = code.trim().replace(/\s+/g, " ").toLowerCase();
+    if (!q) return null;
+    return fullExitQueue.find((t) => {
+      const lSerial = t.loadingSerial ?? t.serial;
+      const bSerial = t.billingSerial ?? t.serial;
+      const lToken = `l-${String(lSerial).padStart(3, "0")}`;
+      const lTokenRaw = `l-${lSerial}`;
+      
+      const gToken = t.createdSource === "billing" && (!t.serial || t.serial === 0) ? "" : `g-${String(t.serial).padStart(3, "0")}`;
+      const gTokenRaw = `g-${t.serial}`;
+      
+      const bToken = t.status === "awaiting_billing" ? "" : `b-${String(bSerial).padStart(3, "0")}`;
+      const bTokenRaw = `b-${bSerial}`;
+      
+      const mGate = t.manualGateToken?.toLowerCase();
+      const mBill = t.manualBillingToken?.toLowerCase();
+
+      return (
+        t.vehicle.toLowerCase() === q ||
+        t.vehicle.toLowerCase().replace(/\s+/g, "") === q.replace(/\s+/g, "") ||
+        t.id.toLowerCase() === q ||
+        t.boe.toLowerCase() === q ||
+        t.boe.toLowerCase().replace(/\s+/g, "") === q.replace(/\s+/g, "") ||
+        lToken === q ||
+        lTokenRaw === q ||
+        (gToken && (gToken === q || gTokenRaw === q)) ||
+        (bToken && (bToken === q || bTokenRaw === q)) ||
+        (mGate && mGate === q) ||
+        (mBill && mBill === q) ||
+        (t.workOrder && t.workOrder.toLowerCase() === q) ||
+        (t.workOrder && t.workOrder.toLowerCase().replace(/\s+/g, "") === q.replace(/\s+/g, "")) ||
+        q.includes(t.vehicle.toLowerCase()) ||
+        q.replace(/\s+/g, "").includes(t.vehicle.toLowerCase().replace(/\s+/g, "")) ||
+        q.includes(t.id.toLowerCase())
+      );
+    });
+  }
+
   function verifyManual() {
-    const q = manualId.trim().toLowerCase();
-    if (!q) return;
-    const found = queue.find(
-      (t) => t.vehicle.toLowerCase() === q || t.id.toLowerCase() === q || t.boe.toLowerCase() === q
-    );
+    const found = findTicket(manualId);
     if (found) {
       setExitSelected(found.id);
       setManualId("");
       toast.success(`Vehicle verified for exit: ${found.vehicle}`);
     } else {
-      toast.error("No exit-ready vehicle matches that vehicle, BOE or ticket ID.");
+      toast.error("No exit-ready vehicle matches that ID or Token No.");
     }
   }
 
@@ -115,10 +150,7 @@ export default function ExitPage() {
   }
 
   function handleScannedCode(code: string, scannerInstance?: any) {
-    const q = code.trim().replace(/\s+/g, " ").toLowerCase();
-    const found = queue.find(
-      (t) => t.vehicle.toLowerCase() === q || t.id.toLowerCase() === q || t.boe.toLowerCase() === q
-    );
+    const found = findTicket(code);
     const activeScanner = scannerInstance || qrScanner;
     if (activeScanner && activeScanner.isScanning) {
       activeScanner.stop().then(() => {

@@ -418,7 +418,7 @@ export async function printLoadingToken(ticket: Ticket, targetWindow?: Window): 
   const loadingTime = ticket.loadingEnd ? new Date(ticket.loadingEnd) : new Date();
   const settings = useStore.getState().settings;
   
-  const qr = await QRCode.toDataURL(ticket.vehicle, {
+  const qr = await QRCode.toDataURL(ticket.id, {
     width: 240,
     margin: 0,
     color: { dark: "#000000", light: "#ffffff" },
@@ -621,7 +621,7 @@ export async function printLoadingTokens(tickets: Ticket[], targetWindow?: Windo
 
   for (const ticket of tickets) {
     const loadingTime = ticket.loadingEnd ? new Date(ticket.loadingEnd) : new Date();
-    const qr = await QRCode.toDataURL(ticket.vehicle, {
+    const qr = await QRCode.toDataURL(ticket.id, {
       width: 240,
       margin: 0,
       color: { dark: "#000000", light: "#ffffff" },
@@ -732,23 +732,7 @@ export async function printCombinedLoadingToken(tickets: Ticket[], targetWindow?
   const gateTokens = Array.from(new Set(tickets.map((t) => t.manualGateToken || `G-${String(t.serial).padStart(3, "0")}`)));
   const billingTokens = Array.from(new Set(tickets.map((t) => t.manualBillingToken || (t.status === "awaiting_billing" ? "B-PENDING" : `B-${String(t.billingSerial ?? t.serial).padStart(3, "0")}`))));
 
-  const combinedPayload = JSON.stringify({
-    type: "yardflow_combined_loading",
-    boe: commonBoe,
-    agents,
-    gateTokens,
-    billingTokens,
-    tickets: tickets.map((t) => ({
-      vehicle: t.vehicle,
-      gateToken: t.manualGateToken || `G-${String(t.serial).padStart(3, "0")}`,
-      billingToken: t.manualBillingToken || (t.status === "awaiting_billing" ? "B-PENDING" : `B-${String(t.billingSerial ?? t.serial).padStart(3, "0")}`),
-      invoice: t.invoice || "N/A",
-      completedTime: t.loadingEnd ? fmtTime(new Date(t.loadingEnd)) : fmtTime(new Date()),
-      completedDate: t.loadingEnd ? fmtDate(new Date(t.loadingEnd)) : fmtDate(new Date()),
-    })),
-  });
-
-  const combinedQr = await QRCode.toDataURL(combinedPayload, {
+  const combinedQr = await QRCode.toDataURL(commonBoe, {
     width: 240,
     margin: 0,
     color: { dark: "#000000", light: "#ffffff" },

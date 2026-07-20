@@ -6,6 +6,7 @@ import {
   permitExit,
   skipBilling,
   skipLoading,
+  updateEntryForBillingTicket,
 } from "@/lib/db";
 import type { YardState } from "@/lib/types";
 
@@ -23,6 +24,13 @@ export async function POST(
 
   let state: YardState;
   switch (action) {
+    case "update-entry":
+      state = await updateEntryForBillingTicket(id, {
+        vehicle: typeof body.vehicle === "string" ? body.vehicle : "",
+        agent: typeof body.agent === "string" ? body.agent : undefined,
+        remarks: typeof body.remarks === "string" ? body.remarks : undefined,
+      });
+      break;
     case "complete-loading":
       state = await completeLoading(id, {
         boe: typeof body.boe === "string" ? body.boe : undefined,

@@ -352,6 +352,42 @@ export async function createTicket(input: {
   return { state, ticket: created };
 }
 
+export function updateEntryForBillingTicket(
+  id: string,
+  extra: { vehicle: string; remarks?: string; agent?: string }
+): Promise<YardState> {
+  return mutate((l, log) => {
+    const t = find(l, id);
+    if (t && t.createdSource === "billing" && (!t.serial || t.serial === 0)) {
+      const timezone = l.settings?.timezone || "Asia/Kolkata";
+      const now = new Date();
+      const todayStr = getTodayString(timezone, now);
+
+      const todaySerials = l.tickets
+        .filter((tk) => getTodayString(timezone, tk.entryTime) === todayStr && tk.serial > 0)
+        .map((tk) => tk.serial);
+      
+      const serial = todaySerials.length > 0 ? Math.max(...todaySerials) + 1 : 1;
+      l.counters.serial = serial;
+
+      t.serial = serial;
+      t.vehicle = extra.vehicle.trim().toUpperCase();
+      t.entryTime = now.toISOString();
+      t.createdSource = "entry"; // Promoted to an entry-sourced ticket
+      if (extra.remarks) t.remarks = extra.remarks.trim();
+      if (extra.agent) t.agent = extra.agent.trim();
+
+      log({
+        action: "entry",
+        ticketId: t.id,
+        serial: t.serial,
+        vehicle: t.vehicle,
+        detail: `Gate linked to pre-billed BOE: ${t.boe}`,
+      });
+    }
+  });
+}
+
 export function completeLoading(
   id: string,
   extra?: { boe?: string; workOrder?: string; agent?: string; remarks?: string; gateToken?: string; billingToken?: string }

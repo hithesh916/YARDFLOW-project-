@@ -117,6 +117,40 @@ export default function EntryPage() {
     }
 
     setBusy(true);
+    
+    // If we matched a billing-first ticket, update it with the entry data instead of creating a new one
+    if (prefillBoe) {
+      const matched = tickets.find(
+        (t) =>
+          t.boe.toUpperCase() === prefillBoe.toUpperCase() &&
+          t.createdSource === "billing" &&
+          t.status !== "exited" &&
+          t.status !== "held"
+      );
+      if (matched) {
+        const ok = await useStore.getState().ticketAction(matched.id, "update-entry", {
+          vehicle: v,
+          agent: a || "Unassigned",
+          remarks: r,
+        });
+        
+        setBusy(false);
+        if (ok) {
+          const updatedTicket = useStore.getState().tickets.find((t) => t.id === matched.id);
+          if (updatedTicket) {
+            await printToken(updatedTicket);
+            useStore.setState({ lastTokenId: updatedTicket.id });
+          }
+          setVehicle("");
+          setBoe("");
+          setAgent("");
+          setRemarks("");
+          setPrefillBoe(null);
+        }
+        return;
+      }
+    }
+
     const created = await createTicket({
       vehicle: v,
       boe: b,
