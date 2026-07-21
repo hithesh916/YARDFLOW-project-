@@ -13,7 +13,7 @@ import Link from "next/link";
 import { Panel } from "@/components/panel";
 import { Pill, type Tone } from "@/components/pill";
 import { filterBySearch, useStore } from "@/lib/store";
-import { pad } from "@/lib/format";
+import { pad, getLocalDateString } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { Ticket } from "@/lib/types";
 
@@ -82,25 +82,31 @@ export default function DashboardPage() {
   const settings = useStore((s) => s.settings);
 
   const filtered = filterBySearch(tickets, search);
+  // Current-queue counts are status-based and span all days on purpose — a vehicle
+  // still awaiting exit from before midnight is still in the yard.
   const currentLoading = filtered.filter(
     (t) => t.status === "awaiting_loading",
   ).length;
   const pendingBilling = filtered.filter(
     (t) => t.status === "awaiting_billing",
   ).length;
-  const exitedToday = filtered.filter((t) => t.status === "exited").length;
   const waitingExit = filtered.filter(
     (t) => t.status === "awaiting_exit",
   ).length;
   const activeAlerts = alerts.filter((a) => !a.acknowledged);
 
-  // Daily completed counts for each stage
-  const entriesToday = filtered.length;
-  const billedToday = filtered.filter(
-    (t) => !!t.billingSerial || !!t.billingTime || t.status !== "awaiting_billing",
-  ).length;
-  const loadedToday = filtered.filter(
-    (t) => !!t.loadingSerial || !!t.loadingEnd || (t.status !== "awaiting_billing" && t.status !== "awaiting_loading"),
+  // "Today" completed counts. Tickets now persist across the nightly serial reset,
+  // so scope these to today's business-date (tenant timezone), keyed on the timestamp
+  // of the stage they measure — not on cumulative status.
+  const tz = settings.timezone || "Asia/Kolkata";
+  const todayStr = getLocalDateString(new Date(), tz);
+  const isToday = (iso?: string | null) =>
+    !!iso && getLocalDateString(iso, tz) === todayStr;
+  const entriesToday = filtered.filter((t) => isToday(t.entryTime)).length;
+  const billedToday = filtered.filter((t) => isToday(t.billingTime)).length;
+  const loadedToday = filtered.filter((t) => isToday(t.loadingEnd)).length;
+  const exitedToday = filtered.filter(
+    (t) => t.status === "exited" && isToday(t.exitTime),
   ).length;
 
   // Real, derived metrics (no hardcoded numbers).

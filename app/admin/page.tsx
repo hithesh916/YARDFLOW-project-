@@ -543,7 +543,14 @@ return (
                     <p className="text-xs text-slate-500 font-mono mt-0.5">{op.username} • {op.role}</p>
                   </div>
                   {op.username !== "admin" && (
-                    <button onClick={() => deleteOperator(op.id)} className="text-red-500 hover:bg-red-50 p-2 rounded-lg transition-colors">
+                    <button
+                      onClick={() => {
+                        if (window.confirm(`Remove operator "${op.name}" (${op.username})? This cannot be undone.`)) {
+                          deleteOperator(op.id);
+                        }
+                      }}
+                      className="text-red-500 hover:bg-red-50 p-2 rounded-lg transition-colors"
+                    >
                       <Trash2 size={15} />
                     </button>
                   )}

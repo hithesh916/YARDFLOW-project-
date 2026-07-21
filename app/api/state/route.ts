@@ -22,6 +22,6 @@ export async function GET(req: Request) {
   const target =
     requested && isSuperadmin(s) ? requested : (s.tenantId ?? undefined);
 
-  const state = await getState(target);
+  const state = await getState(target, { superadmin: isSuperadmin(s) });
   return NextResponse.json(state);
 }

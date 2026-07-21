@@ -65,6 +65,18 @@ export default function ExitPage() {
     .sort((a, b) => (b.exitTime ?? "").localeCompare(a.exitTime ?? ""))
     .slice(0, 5);
 
+  const heldVehicles = filterBySearch(
+    tickets.filter((t) => t.status === "held"),
+    search,
+  );
+
+  async function release(id: string) {
+    setBusy(true);
+    const ok = await ticketAction(id, "release-hold");
+    setBusy(false);
+    if (ok) toast.success("Vehicle released — back in the exit queue.");
+  }
+
   /* ──────────────────────────────────────────────
      Core lookup — searches ALL awaiting_exit tickets
      by ticket.id (what the loading pass QR encodes)
@@ -74,15 +86,13 @@ export default function ExitPage() {
     const q = raw.trim().toLowerCase();
     if (!q) return null;
 
-    // 1. Exact ticket ID (what loading pass QR encodes)
-    let hit = list.find((t: any) => t.id.toLowerCase() === q);
+    // 1. Exact ticket ID (what loading pass QR encodes). Exact match only — a
+    // substring/`includes` match would let a foreign QR that merely CONTAINS a
+    // ticket id auto-verify the wrong vehicle.
+    const hit = list.find((t: any) => t.id.toLowerCase() === q);
     if (hit) return hit;
 
-    // 2. Partial / substring ID (for edge cases)
-    hit = list.find((t: any) => q.includes(t.id.toLowerCase()));
-    if (hit) return hit;
-
-    // 3. Token / vehicle / BOE fallbacks
+    // 2. Token / vehicle / BOE fallbacks
     return list.find((t: any) => {
       const lSerial = t.loadingSerial ?? t.serial;
       const bSerial = t.billingSerial ?? t.serial;
@@ -221,6 +231,13 @@ export default function ExitPage() {
   ────────────────────────────────────────────── */
   async function permit() {
     if (!selected) return;
+    // Gate staff must not release an unpaid or unbilled vehicle without a conscious
+    // override — the workflow checklist above shows the real billing state.
+    if (!selected.billingTime) {
+      if (!window.confirm(`${selected.vehicle} has NO billing record. Release anyway?`)) return;
+    } else if (selected.paymentStatus !== "Paid") {
+      if (!window.confirm(`${selected.vehicle} is marked NOT PAID. Release anyway?`)) return;
+    }
     setBusy(true);
     const ok = await ticketAction(selected.id, "permit-exit");
     setBusy(false);
@@ -452,9 +469,27 @@ export default function ExitPage() {
                   <p className="mb-4 text-[11px] font-extrabold tracking-[0.06em] text-slate-500">
                     WORKFLOW VERIFICATION
                   </p>
-                  <VerifStep t="1. Entry Recorded"    d={`Gate A-1 @ ${fmtTime(selected.entryTime)}`} />
-                  <VerifStep t="2. Billing Completed"  d={`Invoice #${selected.invoice ?? "—"}`} />
-                  <VerifStep t="3. Loading Completed"  d={`${selected.bay} @ ${selected.loadingEnd ? fmtTime(selected.loadingEnd) : "—"}`} />
+                  <VerifStep
+                    t="1. Entry Recorded"
+                    d={`Gate A-1 @ ${fmtTime(selected.entryTime)}`}
+                    state={selected.entryTime ? "done" : "pending"}
+                  />
+                  <VerifStep
+                    t="2. Billing Completed"
+                    d={
+                      !selected.billingTime
+                        ? "Not billed — no invoice on record"
+                        : selected.paymentStatus === "Paid"
+                          ? `Invoice #${selected.invoice ?? "—"} · Paid`
+                          : `Invoice #${selected.invoice ?? "—"} · NOT PAID`
+                    }
+                    state={!selected.billingTime ? "pending" : selected.paymentStatus === "Paid" ? "done" : "warn"}
+                  />
+                  <VerifStep
+                    t="3. Loading Completed"
+                    d={`${selected.bay} @ ${selected.loadingEnd ? fmtTime(selected.loadingEnd) : "—"}`}
+                    state={selected.loadingEnd ? "done" : "pending"}
+                  />
                 </div>
 
                 <div className="rounded-xl bg-slate-50 dark:bg-slate-900/50 p-5">
@@ -505,6 +540,37 @@ export default function ExitPage() {
         </div>
       </div>
 
+      {/* Held vehicles — awaiting release back into the exit queue */}
+      {heldVehicles.length > 0 && (
+        <Panel className="p-6">
+          <p className="mb-4 flex items-center gap-1.5 text-[11px] font-black tracking-[0.08em] text-amber-600 uppercase">
+            <Ban size={13} /> On Hold ({heldVehicles.length})
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {heldVehicles.map((t) => (
+              <div
+                key={t.id}
+                className="flex items-center justify-between gap-3 rounded-lg border border-amber-200 dark:border-amber-900/50 bg-amber-50/50 dark:bg-amber-950/20 px-4 py-3"
+              >
+                <div className="min-w-0">
+                  <p className="text-sm font-bold text-slate-800 dark:text-slate-100">{t.vehicle}</p>
+                  <p className="truncate text-[10px] text-slate-500 mt-0.5" title={t.holdReason ?? ""}>
+                    {t.holdReason || "No reason recorded"}
+                  </p>
+                </div>
+                <button
+                  onClick={() => release(t.id)}
+                  disabled={busy}
+                  className="shrink-0 flex items-center gap-1 rounded-lg bg-emerald-600 px-3 py-2 text-[12px] font-extrabold text-white hover:bg-emerald-700 disabled:opacity-50 cursor-pointer active:scale-95 transition-all"
+                >
+                  <ArrowRight size={13} /> Release
+                </button>
+              </div>
+            ))}
+          </div>
+        </Panel>
+      )}
+
       {/* Today's exits */}
       <Panel className="p-6">
         <p className="mb-4 text-[11px] font-black tracking-[0.08em] text-slate-500 uppercase">
@@ -541,11 +607,21 @@ export default function ExitPage() {
 }
 
 /* ── Sub-components ── */
-function VerifStep({ t, d }: { t: string; d: string }) {
+// The tick is driven by real ticket data — a green check only when the stage is
+// genuinely complete, amber when it needs attention (e.g. billed but Not Paid), red
+// when the stage is missing. Previously all three were hardcoded green, which told
+// gate staff billing was done even when it was skipped or unpaid.
+function VerifStep({ t, d, state = "done" }: { t: string; d: string; state?: "done" | "warn" | "pending" }) {
+  const chip =
+    state === "done"
+      ? "bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600"
+      : state === "warn"
+        ? "bg-amber-50 dark:bg-amber-950/40 text-amber-600"
+        : "bg-red-50 dark:bg-red-950/40 text-red-600";
   return (
     <div className="mb-4 flex items-start gap-3">
-      <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600">
-        <CheckCircle2 size={14} />
+      <div className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full ${chip}`}>
+        {state === "done" ? <CheckCircle2 size={14} /> : state === "warn" ? <AlertTriangle size={14} /> : <X size={14} />}
       </div>
       <div>
         <p className="text-sm font-bold text-slate-800 dark:text-slate-200">{t}</p>

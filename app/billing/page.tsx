@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { CheckCircle2, ReceiptText, Printer, MapPin } from "lucide-react";
 import { toast } from "sonner";
 import { Panel } from "@/components/panel";
@@ -41,6 +41,8 @@ export default function BillingPage() {
   const [matchedTicket, setMatchedTicket] = useState<Ticket | null>(null);
   // Cross-gate: vehicle pre-filled from entry gate record
   const [prefillVehicle, setPrefillVehicle] = useState<string | null>(null);
+  // The BOE we last auto-filled agent/remarks for — so a background poll can't re-fill.
+  const lastFilledBoeRef = useRef<string>("");
 
   // Auto-populate form fields when typed BOE matches a ticket in queue or entry gate record
   useEffect(() => {
@@ -50,6 +52,7 @@ export default function BillingPage() {
       setPrefillVehicle(null);
       setAgentOptions([]);
       setShowAgentOptions(false);
+      lastFilledBoeRef.current = "";
       return;
     }
 
@@ -79,9 +82,14 @@ export default function BillingPage() {
     setAgentOptions(uniqueAgents);
     if (uniqueAgents.length <= 1) setShowAgentOptions(false);
 
-    // Always fill agent and remarks from matched ticket
-    setAgent(matched.billingAgent || matched.agent || "");
-    setRemarks(matched.remarks ?? "");
+    // Fill the operator-editable fields ONLY when the BOE itself changed (a user
+    // action) — never on a background tickets poll, which would otherwise snap the
+    // agent/remarks the operator is typing back to the stored values.
+    if (lastFilledBoeRef.current !== b) {
+      setAgent(matched.billingAgent || matched.agent || "");
+      setRemarks(matched.remarks ?? "");
+      lastFilledBoeRef.current = b;
+    }
     setMatchedTicket(matched);
 
     // Show vehicle number ONLY when ticket was created at entry gate
@@ -115,6 +123,9 @@ export default function BillingPage() {
   }
 
   async function confirm() {
+    // Guard against Enter-key / double-click re-entry while a submit is in flight —
+    // otherwise a second run on stale state can create and bill a duplicate ticket.
+    if (busy) return;
     const b = boe.trim().toUpperCase();
     if (!b) {
       toast.error("Work Order No is required.");
@@ -283,10 +294,31 @@ export default function BillingPage() {
               <label className="mb-2 block text-[13px] font-bold text-slate-700">
                 Payment Status *
               </label>
-              <div className="flex">
-                <div className="flex items-center gap-2 rounded-lg border border-emerald-250 bg-emerald-50 px-4 py-3 text-xs font-bold text-emerald-700 w-full justify-center">
-                  <CheckCircle2 size={14} /> PAID (Charges Collected)
-                </div>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setPaymentStatus("Paid")}
+                  className={
+                    "flex items-center justify-center gap-2 rounded-lg border px-4 py-3 text-xs font-bold transition-colors cursor-pointer " +
+                    (paymentStatus === "Paid"
+                      ? "border-emerald-300 bg-emerald-50 text-emerald-700"
+                      : "border-input bg-white dark:bg-black text-slate-500 hover:bg-slate-50")
+                  }
+                >
+                  <CheckCircle2 size={14} /> PAID
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPaymentStatus("Not Paid")}
+                  className={
+                    "flex items-center justify-center gap-2 rounded-lg border px-4 py-3 text-xs font-bold transition-colors cursor-pointer " +
+                    (paymentStatus === "Not Paid"
+                      ? "border-red-300 bg-red-50 text-red-700"
+                      : "border-input bg-white dark:bg-black text-slate-500 hover:bg-slate-50")
+                  }
+                >
+                  NOT PAID
+                </button>
               </div>
             </div>
             <div>

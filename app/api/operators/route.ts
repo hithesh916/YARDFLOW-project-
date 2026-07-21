@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createOperator, deleteOperator, changeOperatorPassword } from "@/lib/db";
+import { createOperator, deleteOperator, changeOperatorPassword, isActionError } from "@/lib/db";
 import { requireAuth } from "@/lib/api-auth";
 import { isAdmin, isSuperadmin } from "@/lib/auth";
 
@@ -51,10 +51,13 @@ export async function POST(req: Request) {
 
     return NextResponse.json(state);
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Request failed";
-    // Authorization / bad-input failures are the caller's fault, not a server
-    // error — return 403 so clients (and logs) don't misread them as 500s.
-    const status = /not authorized|incorrect/i.test(message) ? 403 : 500;
-    return NextResponse.json({ error: message }, { status });
+    // Known, user-facing failures (duplicate username 409, seat-limit 422, authz 403,
+    // wrong current passcode 403) carry their own status + safe message. Everything
+    // else is logged server-side and returned generic so no Prisma internals leak.
+    if (isActionError(err)) {
+      return NextResponse.json({ error: err.message }, { status: err.status });
+    }
+    console.error("operator action failed:", err);
+    return NextResponse.json({ error: "Request failed." }, { status: 500 });
   }
 }

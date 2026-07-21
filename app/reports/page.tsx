@@ -10,6 +10,7 @@ import {
 import { toast } from "sonner";
 import { Panel } from "@/components/panel";
 import { useStore } from "@/lib/store";
+import { getLocalDateString } from "@/lib/format";
 import { STATUS_LABELS, type TicketStatus } from "@/lib/types";
 
 const STATUS_ORDER: TicketStatus[] = [
@@ -52,25 +53,20 @@ function Metric({
   );
 }
 
-function sameDay(d1: string | null, d2: Date): boolean {
-  if (!d1) return false;
-  const first = new Date(d1);
-  return (
-    first.getFullYear() === d2.getFullYear() &&
-    first.getMonth() === d2.getMonth() &&
-    first.getDate() === d2.getDate()
-  );
-}
-
 export default function ReportsPage() {
   const tickets = useStore((s) => s.tickets);
+  const settings = useStore((s) => s.settings);
+  const tz = settings?.timezone || "Asia/Kolkata";
   const [dateRange, setDateRange] = useState<"today" | "week" | "all">("today");
 
   const now = new Date();
+  const todayStr = getLocalDateString(now, tz);
 
   const filteredTickets = tickets.filter((t) => {
     if (dateRange === "today") {
-      return sameDay(t.entryTime, now);
+      // Use the tenant timezone so "today" matches the server's day boundary and the
+      // daily serial reset — not the viewer's browser timezone.
+      return getLocalDateString(t.entryTime, tz) === todayStr;
     }
     if (dateRange === "week") {
       const d = new Date(t.entryTime);
@@ -125,8 +121,13 @@ export default function ReportsPage() {
   };
 
   function exportVisits() {
-    const csvValue = (val: unknown) =>
-      `"${String(val ?? "").replace(/"/g, '""')}"`;
+    const csvValue = (val: unknown) => {
+      let s = String(val ?? "");
+      // Neutralize spreadsheet formula injection: a cell starting with = + - @ (or a
+      // tab/CR) is treated as a formula by Excel/Sheets. Prefix with a single quote.
+      if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`;
+      return `"${s.replace(/"/g, '""')}"`;
+    };
 
     const headers = [
       "Ticket",

@@ -52,6 +52,29 @@ function rid(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+// True when the error is a Prisma unique-constraint violation (P2002) — used to
+// retry an insert whose generated id happened to collide.
+function isUniqueViolation(e: unknown): boolean {
+  return !!e && typeof e === "object" && "code" in e && (e as { code?: string }).code === "P2002";
+}
+
+// Thrown by a lifecycle action when a precondition fails (ticket missing, or the
+// vehicle is in the wrong status). The API dispatcher maps `.status` to the HTTP
+// response so the UI can show a real error toast instead of a false "success".
+// Previously these were silent no-ops that still returned HTTP 200 + full state.
+export class ActionError extends Error {
+  status: number;
+  constructor(message: string, status = 409) {
+    super(message);
+    this.name = "ActionError";
+    this.status = status;
+  }
+}
+
+export function isActionError(e: unknown): e is ActionError {
+  return e instanceof ActionError;
+}
+
 function getTodayString(timezone: string = "Asia/Kolkata", dateInput?: Date | string): string {
   try {
     const d = dateInput ? (typeof dateInput === "string" ? new Date(dateInput) : dateInput) : new Date();
@@ -223,7 +246,11 @@ async function ensureSeeded() {
   await ensureSuperadmin();
   if (seedChecked) return;
   const existing = await prisma.settings.findUnique({ where: { tenantId: DEFAULT_TENANT } });
-  if (!existing) {
+  if (existing) {
+    seedChecked = true;
+    return;
+  }
+  {
     const seed = buildSeed();
     const tz = seed.settings?.timezone || "Asia/Kolkata";
     // Hash the seed passcodes before insert (scrypt is async, so it can't run
@@ -266,12 +293,19 @@ async function ensureSeeded() {
           }),
         ),
       ]);
+      seedChecked = true;
     } catch (e) {
-      // A concurrent first request may have seeded already — that's fine.
-      console.warn("ensureSeeded skipped (likely already seeded):", e);
+      // A concurrent first request may have seeded already (unique collision) — that's
+      // fine to cache. Any other error must NOT be cached as success, or the default
+      // workspace would run without its counter/settings. Re-throw the rest.
+      if (isUniqueViolation(e)) {
+        seedChecked = true;
+        return;
+      }
+      console.error("ensureSeeded failed:", e);
+      throw e;
     }
   }
-  seedChecked = true;
 }
 
 // Ensure a freshly onboarded tenant has the rows its dataset needs: its own
@@ -297,16 +331,30 @@ async function ensureTenantWorkspace(tenantId: string) {
         create: { tenantId, ...seed.counters, lastResetDate: getTodayString(tz) },
       }),
     ]);
+    provisionedTenants.add(tenantId);
   } catch (e) {
-    // A concurrent request may have provisioned it already — that's fine.
-    console.warn("ensureTenantWorkspace skipped (likely already provisioned):", e);
+    // Only a unique-constraint collision (a concurrent request beat us to it) means
+    // the workspace really exists — cache that. Any OTHER error (e.g. a DB blip) must
+    // NOT be cached as "done", or this tenant's Counter row would never be created and
+    // its serials would climb across days forever. Re-throw so the request surfaces it.
+    if (isUniqueViolation(e)) {
+      provisionedTenants.add(tenantId);
+      return;
+    }
+    console.error("ensureTenantWorkspace failed:", e);
+    throw e;
   }
-  provisionedTenants.add(tenantId);
 }
 
-// Lazy midnight reset for a single tenant, keyed on its timezone — same semantics
-// as the old checkAndTriggerDailyReset: wipe that tenant's tickets/alerts and zero
-// its three daily serials (boe is preserved) when the day rolls over.
+// Lazy midnight day-roll for a single tenant, keyed on its timezone. IMPORTANT:
+// this only ZEROES the three daily serial counters (G-/B-/L- restart each day) so
+// the next ticket numbers from 1 again. It does NOT delete any tickets or alerts —
+// yard data persists across days, so a vehicle still in the yard past midnight keeps
+// its record and Week/All-Time reports remain real. `boe` is preserved.
+//
+// The roll is a compare-and-set (`updateMany` guarded on the previous date), so at
+// 00:00 across many serverless instances only ONE update matches and flips the date;
+// the rest see 0 rows changed and skip — no double reset, no duplicate log entry.
 async function checkDailyReset(tenantId: string = DEFAULT_TENANT) {
   const [counter, settings] = await Promise.all([
     prisma.counter.findUnique({ where: { tenantId } }),
@@ -317,29 +365,32 @@ async function checkDailyReset(tenantId: string = DEFAULT_TENANT) {
   const todayStr = getTodayString(tz);
 
   if (!counter.lastResetDate) {
-    await prisma.counter.update({ where: { tenantId }, data: { lastResetDate: todayStr } });
+    // First run for this tenant: stamp today's date without touching serials.
+    await prisma.counter.updateMany({
+      where: { tenantId, lastResetDate: null },
+      data: { lastResetDate: todayStr },
+    });
     return;
   }
 
   if (counter.lastResetDate !== todayStr) {
-    console.log(`[DAILY RESET] Resetting yard data for ${tenantId}, new day: ${todayStr} (last: ${counter.lastResetDate})`);
-    await prisma.$transaction([
-      prisma.ticket.deleteMany({ where: { tenantId } }),
-      prisma.alert.deleteMany({ where: { tenantId } }),
-      prisma.counter.update({
-        where: { tenantId },
-        data: { serial: 0, billingSerial: 0, loadingSerial: 0, lastResetDate: todayStr },
-      }),
-      prisma.activityEntry.create({
+    // Compare-and-set: only the instance whose update matches the old date wins.
+    const rolled = await prisma.counter.updateMany({
+      where: { tenantId, lastResetDate: counter.lastResetDate },
+      data: { serial: 0, billingSerial: 0, loadingSerial: 0, lastResetDate: todayStr },
+    });
+    if (rolled.count === 1) {
+      console.log(`[DAILY RESET] Serials reset for ${tenantId}, new day: ${todayStr} (last: ${counter.lastResetDate}). Tickets preserved.`);
+      await prisma.activityEntry.create({
         data: {
           id: rid(),
           tenantId,
           at: new Date().toISOString(),
           action: "reset",
-          detail: `Automatic daily reset at midnight (${todayStr})`,
+          detail: `Daily serial reset at midnight (${todayStr}) — yard data preserved`,
         },
-      }),
-    ]);
+      });
+    }
   }
 }
 
@@ -355,7 +406,7 @@ async function prep(tenantId: string = DEFAULT_TENANT) {
 // Assemble the client snapshot for one workspace. Operational data (tickets/
 // alerts/activity/settings) is scoped to `tenantId`; tenants/operators/permissions
 // stay global (the superadmin manages them across all companies).
-async function buildState(tenantId: string = DEFAULT_TENANT): Promise<YardState> {
+async function buildState(tenantId: string = DEFAULT_TENANT, opts?: { superadmin?: boolean }): Promise<YardState> {
   const [tickets, alerts, activity, settingsRow, tenants, operators, permissions] = await Promise.all([
     prisma.ticket.findMany({ where: { tenantId }, orderBy: [{ queuePos: "asc" }, { createdAt: "asc" }] }),
     prisma.alert.findMany({ where: { tenantId }, orderBy: { id: "asc" } }),
@@ -365,15 +416,26 @@ async function buildState(tenantId: string = DEFAULT_TENANT): Promise<YardState>
     prisma.operator.findMany({ orderBy: { id: "asc" } }),
     prisma.rolePermission.findMany(),
   ]);
+  // tenants/operators are platform-global tables. Only the superadmin may see across
+  // companies. For everyone else, scope BOTH to the caller's own workspace and strip
+  // the licence key — otherwise every authenticated poll handed out every tenant's
+  // licence key and every other company's operator list.
+  const isSuper = !!opts?.superadmin;
+  const scopedTenants = isSuper
+    ? tenants.map(toTenant)
+    : tenants.filter((t) => t.id === tenantId).map((t) => ({ ...toTenant(t), licenseKey: "" }));
+  const scopedOperators = isSuper
+    ? operators
+    : operators.filter((o) => tenantOf(o.tenantId) === tenantId);
   return {
     tickets: tickets.map(toTicket),
     alerts: alerts.map(toAlert),
     activity: activity.map(toActivity),
     settings: settingsRow ? toSettings(settingsRow) : { ...DEFAULT_SETTINGS },
-    tenants: tenants.map(toTenant),
+    tenants: scopedTenants,
     // Never ship passcodes (hashes) to the client. The snapshot is for display/
     // nav only; authentication happens server-side against the DB.
-    operators: operators.map((o) => ({ ...toOperator(o), passcode: "" })),
+    operators: scopedOperators.map((o) => ({ ...toOperator(o), passcode: "" })),
     permissions: permissions.map(toPermission),
   };
 }
@@ -387,10 +449,10 @@ async function nextQueuePos(tx: Tx, tenantId: string = DEFAULT_TENANT): Promise<
 }
 
 /* ---------- public API ---------- */
-export async function getState(tenantId?: string): Promise<YardState> {
+export async function getState(tenantId?: string, opts?: { superadmin?: boolean }): Promise<YardState> {
   const tid = tenantOf(tenantId);
   await prep(tid);
-  return buildState(tid);
+  return buildState(tid, opts);
 }
 
 // Superadmin-only: every onboarded tenant's directory metadata joined with its
@@ -428,79 +490,110 @@ export async function createTicket(input: {
 }, tenantId?: string): Promise<{ state: YardState; ticket: Ticket | null }> {
   const DEFAULT_TENANT = tenantOf(tenantId); // scope all queries below to the caller's workspace (shadows the module default)
   await prep(DEFAULT_TENANT);
-  const created = await prisma.$transaction(async (tx) => {
-    const settings = await tx.settings.findUnique({ where: { tenantId: DEFAULT_TENANT } });
-    const timezone = settings?.timezone || "Asia/Kolkata";
-    const now = new Date();
-    const todayStr = getTodayString(timezone, now);
 
-    const allTickets = await tx.ticket.findMany({ where: { tenantId: DEFAULT_TENANT } });
-    const todaySerials = allTickets
-      .filter((t) => getTodayString(timezone, t.entryTime) === todayStr && t.createdSource !== "billing")
-      .map((t) => t.serial);
+  // The whole insert is retried on a unique-id collision. The gate serial is claimed
+  // via an ATOMIC counter increment (row-locked), so two concurrent entries can never
+  // read the same N and both print serial N+1 — they serialize to N+1 and N+2. The
+  // only residual collision risk is the random billing-ticket id, which the retry
+  // regenerates.
+  const runInsert = () =>
+    prisma.$transaction(async (tx) => {
+      const settings = await tx.settings.findUnique({ where: { tenantId: DEFAULT_TENANT } });
+      const timezone = settings?.timezone || "Asia/Kolkata";
+      const now = new Date();
+      const todayStr = getTodayString(timezone, now);
+      const isBilling = input.createdSource === "billing";
 
-    const serial = input.createdSource === "billing" ? 0 : todaySerials.length > 0 ? Math.max(...todaySerials) + 1 : 1;
-    const datePart = todayStr.replace(/-/g, "");
-    const idBase =
-      input.createdSource === "billing"
-        ? `B-${datePart}-${Math.floor(1000 + Math.random() * 9000)}`
+      // Ensure the counter row exists (no-op if present), then atomically claim the
+      // next gate serial. Billing-desk tickets get serial 0 (no gate number yet).
+      await tx.counter.upsert({
+        where: { tenantId: DEFAULT_TENANT },
+        update: {},
+        create: { tenantId: DEFAULT_TENANT, boe: 1000, serial: 0, billingSerial: 0, loadingSerial: 0, lastResetDate: todayStr },
+      });
+
+      let serial = 0;
+      if (!isBilling) {
+        const bumped = await tx.counter.update({
+          where: { tenantId: DEFAULT_TENANT },
+          data: { serial: { increment: 1 } },
+        });
+        serial = bumped.serial;
+        // Defensive floor: if a reset zeroed the counter but today's tickets already
+        // carry higher serials, jump past them (belt-and-suspenders, applied atomically).
+        const todayMax = (await tx.ticket.findMany({ where: { tenantId: DEFAULT_TENANT } }))
+          .filter((t) => t.createdSource !== "billing" && getTodayString(timezone, t.entryTime) === todayStr)
+          .reduce((max, t) => Math.max(max, t.serial), 0);
+        if (serial <= todayMax) {
+          const fixed = await tx.counter.update({
+            where: { tenantId: DEFAULT_TENANT },
+            data: { serial: todayMax + 1 },
+          });
+          serial = fixed.serial;
+        }
+      }
+
+      const datePart = todayStr.replace(/-/g, "");
+      // Billing-desk ids carry a high-entropy suffix (rid) instead of a 4-digit random
+      // so they don't collide ~50% of the time at ~110 tickets/day.
+      const idBase = isBilling
+        ? `B-${datePart}-${rid().split("-")[1]}`
         : `TK-${datePart}-${serial}`;
-    // Ticket `id` is a GLOBAL primary key but `serial` is per-tenant, so two
-    // companies registering on the same day would collide on `TK-<date>-<serial>`
-    // and the second insert would throw. Namespace non-default tenants by their
-    // (already-unique) tenantId. The default/demo workspace keeps bare ids for
-    // backward compatibility with existing rows and printed QR tokens.
-    const id = DEFAULT_TENANT === "default" ? idBase : `${DEFAULT_TENANT}-${idBase}`;
+      // Ticket `id` is a GLOBAL primary key but `serial` is per-tenant, so two
+      // companies registering on the same day would collide on `TK-<date>-<serial>`.
+      // Namespace non-default tenants by their (already-unique) tenantId. The default/
+      // demo workspace keeps bare ids for backward compatibility with printed QR tokens.
+      const id = DEFAULT_TENANT === "default" ? idBase : `${DEFAULT_TENANT}-${idBase}`;
 
-    const counter = await tx.counter.findUnique({ where: { tenantId: DEFAULT_TENANT } });
-    const newBoe = (counter?.boe ?? 1000) + 1;
-    // Use upsert instead of update so that the row is created on-the-fly if it
-    // somehow doesn't exist yet (e.g. partially-provisioned tenant workspace).
-    const todayForCounter = getTodayString("Asia/Kolkata");
-    await tx.counter.upsert({
-      where: { tenantId: DEFAULT_TENANT },
-      update: { boe: newBoe, ...(input.createdSource !== "billing" ? { serial } : {}) },
-      create: { tenantId: DEFAULT_TENANT, boe: newBoe, serial: input.createdSource !== "billing" ? serial : 0, billingSerial: 0, loadingSerial: 0, lastResetDate: todayForCounter },
+      const queuePos = await nextQueuePos(tx, DEFAULT_TENANT);
+      const ticket = await tx.ticket.create({
+        data: {
+          id,
+          tenantId: DEFAULT_TENANT,
+          queuePos,
+          serial,
+          vehicle: input.vehicle.trim().toUpperCase(),
+          boe: input.boe?.trim() || `BOE-${Math.floor(10000 + Math.random() * 90000)}`,
+          agent: input.agent?.trim() || "Unassigned",
+          cargo: input.cargo?.trim() || pick(CARGO),
+          status: "awaiting_billing",
+          bay: pick(BAYS),
+          remarks: input.remarks?.trim() || null,
+          entryTime: now.toISOString(),
+          loadingEnd: null,
+          invoice: null,
+          exitTime: null,
+          holdReason: null,
+          paymentStatus: "Not Paid",
+          createdSource: input.createdSource || "entry",
+        },
+      });
+
+      await tx.activityEntry.create({
+        data: {
+          id: rid(),
+          tenantId: DEFAULT_TENANT,
+          at: new Date().toISOString(),
+          action: "entry",
+          ticketId: ticket.id,
+          serial: ticket.serial,
+          vehicle: ticket.vehicle,
+          detail: `${ticket.boe} · ${ticket.agent}`,
+        },
+      });
+      return ticket;
     });
 
-    const queuePos = await nextQueuePos(tx, DEFAULT_TENANT);
-    const ticket = await tx.ticket.create({
-      data: {
-        id,
-        tenantId: DEFAULT_TENANT,
-        queuePos,
-        serial,
-        vehicle: input.vehicle.trim().toUpperCase(),
-        boe: input.boe?.trim() || `BOE-${Math.floor(10000 + Math.random() * 90000)}`,
-        agent: input.agent?.trim() || "Unassigned",
-        cargo: input.cargo?.trim() || pick(CARGO),
-        status: "awaiting_billing",
-        bay: pick(BAYS),
-        remarks: input.remarks?.trim() || null,
-        entryTime: now.toISOString(),
-        loadingEnd: null,
-        invoice: null,
-        exitTime: null,
-        holdReason: null,
-        paymentStatus: "Not Paid",
-        createdSource: input.createdSource || "entry",
-      },
-    });
-
-    await tx.activityEntry.create({
-      data: {
-        id: rid(),
-        tenantId: DEFAULT_TENANT,
-        at: new Date().toISOString(),
-        action: "entry",
-        ticketId: ticket.id,
-        serial: ticket.serial,
-        vehicle: ticket.vehicle,
-        detail: `${ticket.boe} · ${ticket.agent}`,
-      },
-    });
-    return ticket;
-  });
+  let created: Awaited<ReturnType<typeof runInsert>> | null = null;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      created = await runInsert();
+      break;
+    } catch (e) {
+      if (isUniqueViolation(e) && attempt < 2) continue;
+      throw e;
+    }
+  }
 
   const state = await buildState(DEFAULT_TENANT);
   return { state, ticket: created ? toTicket(created) : null };
@@ -515,19 +608,31 @@ export async function updateEntryForBillingTicket(
   await prep(DEFAULT_TENANT);
   await prisma.$transaction(async (tx) => {
     const t = await tx.ticket.findUnique({ where: { id } });
-    if (t && t.tenantId === DEFAULT_TENANT && t.createdSource === "billing" && (!t.serial || t.serial === 0)) {
+    if (!t || t.tenantId !== DEFAULT_TENANT) throw new ActionError("Ticket not found.", 404);
+    if (t.createdSource !== "billing" || (t.serial && t.serial !== 0)) throw new ActionError("This ticket is already linked to a gate entry.", 409);
+    {
       const settings = await tx.settings.findUnique({ where: { tenantId: DEFAULT_TENANT } });
       const timezone = settings?.timezone || "Asia/Kolkata";
       const now = new Date();
       const todayStr = getTodayString(timezone, now);
 
-      const allTickets = await tx.ticket.findMany({ where: { tenantId: DEFAULT_TENANT } });
-      const todaySerials = allTickets
-        .filter((tk) => getTodayString(timezone, tk.entryTime) === todayStr && tk.serial > 0)
-        .map((tk) => tk.serial);
-      const serial = todaySerials.length > 0 ? Math.max(...todaySerials) + 1 : 1;
-
-      await tx.counter.update({ where: { tenantId: DEFAULT_TENANT }, data: { serial } });
+      // Atomically claim the next gate serial (row-locked), then apply the today-max
+      // floor defensively — same pattern as createTicket.
+      const bumped = await tx.counter.update({
+        where: { tenantId: DEFAULT_TENANT },
+        data: { serial: { increment: 1 } },
+      });
+      let serial = bumped.serial;
+      const todayMax = (await tx.ticket.findMany({ where: { tenantId: DEFAULT_TENANT } }))
+        .filter((tk) => tk.serial > 0 && getTodayString(timezone, tk.entryTime) === todayStr)
+        .reduce((max, tk) => Math.max(max, tk.serial), 0);
+      if (serial <= todayMax) {
+        const fixed = await tx.counter.update({
+          where: { tenantId: DEFAULT_TENANT },
+          data: { serial: todayMax + 1 },
+        });
+        serial = fixed.serial;
+      }
       await tx.ticket.update({
         where: { id },
         data: {
@@ -565,27 +670,39 @@ export async function completeLoading(
   await prep(DEFAULT_TENANT);
   await prisma.$transaction(async (tx) => {
     const t = await tx.ticket.findUnique({ where: { id } });
-    if (t && t.tenantId === DEFAULT_TENANT && (t.status === "awaiting_loading" || t.status === "awaiting_billing")) {
+    if (!t || t.tenantId !== DEFAULT_TENANT) throw new ActionError("Ticket not found.", 404);
+    // Billing must happen first — a vehicle can no longer skip straight from billing
+    // to exit unpaid by being loaded early.
+    if (t.status === "awaiting_billing") throw new ActionError("Billing must be completed before this vehicle can be loaded.", 409);
+    if (t.status !== "awaiting_loading") throw new ActionError("This vehicle is not awaiting loading.", 409);
+    {
       const settings = await tx.settings.findUnique({ where: { tenantId: DEFAULT_TENANT } });
       const tz = settings?.timezone || "Asia/Kolkata";
       const todayStr = getTodayString(tz);
 
-      const counter = await tx.counter.findUnique({ where: { tenantId: DEFAULT_TENANT } });
-      let loadingSerial = counter?.loadingSerial ?? 0;
-
-      // Belt-and-suspenders: recover the true max from today's tickets.
-      const allTickets = await tx.ticket.findMany({ where: { tenantId: DEFAULT_TENANT } });
-      const maxExistingLoading = allTickets
-        .filter((tk) => tk.loadingSerial != null && getTodayString(tz, tk.loadingEnd || tk.entryTime) === todayStr)
-        .reduce((max, tk) => Math.max(max, tk.loadingSerial!), 0);
-      if (loadingSerial < maxExistingLoading) loadingSerial = maxExistingLoading;
-      loadingSerial += 1;
-
+      // Ensure the counter exists, then atomically claim the next loading serial
+      // (row-locked) so two concurrent completions can't print the same L- number.
       await tx.counter.upsert({
         where: { tenantId: DEFAULT_TENANT },
-        update: { loadingSerial },
-        create: { tenantId: DEFAULT_TENANT, boe: 1000, serial: 0, billingSerial: 0, loadingSerial, lastResetDate: todayStr },
+        update: {},
+        create: { tenantId: DEFAULT_TENANT, boe: 1000, serial: 0, billingSerial: 0, loadingSerial: 0, lastResetDate: todayStr },
       });
+      const bumped = await tx.counter.update({
+        where: { tenantId: DEFAULT_TENANT },
+        data: { loadingSerial: { increment: 1 } },
+      });
+      let loadingSerial = bumped.loadingSerial;
+      // Defensive floor: recover the true max from today's tickets, applied atomically.
+      const maxExistingLoading = (await tx.ticket.findMany({ where: { tenantId: DEFAULT_TENANT } }))
+        .filter((tk) => tk.loadingSerial != null && getTodayString(tz, tk.loadingEnd || tk.entryTime) === todayStr)
+        .reduce((max, tk) => Math.max(max, tk.loadingSerial!), 0);
+      if (loadingSerial <= maxExistingLoading) {
+        const fixed = await tx.counter.update({
+          where: { tenantId: DEFAULT_TENANT },
+          data: { loadingSerial: maxExistingLoading + 1 },
+        });
+        loadingSerial = fixed.loadingSerial;
+      }
       await tx.ticket.update({
         where: { id },
         data: {
@@ -619,7 +736,9 @@ export async function skipLoading(id: string, tenantId?: string): Promise<YardSt
   const DEFAULT_TENANT = tenantOf(tenantId); // scope all queries below to the caller's workspace (shadows the module default)
   await prep(DEFAULT_TENANT);
   const t = await prisma.ticket.findUnique({ where: { id } });
-  if (t && t.tenantId === DEFAULT_TENANT) {
+  if (!t || t.tenantId !== DEFAULT_TENANT) throw new ActionError("Ticket not found.", 404);
+  if (t.status !== "awaiting_loading") throw new ActionError("This vehicle is not awaiting loading.", 409);
+  {
     await prisma.$transaction(async (tx) => {
       const pos = await nextQueuePos(tx, DEFAULT_TENANT);
       await tx.ticket.update({ where: { id }, data: { queuePos: pos } });
@@ -651,27 +770,38 @@ export async function completeBilling(
   await prep(DEFAULT_TENANT);
   await prisma.$transaction(async (tx) => {
     const t = await tx.ticket.findUnique({ where: { id } });
-    if (t && t.tenantId === DEFAULT_TENANT && t.status === "awaiting_billing") {
+    if (!t || t.tenantId !== DEFAULT_TENANT) throw new ActionError("Ticket not found.", 404);
+    if (t.status !== "awaiting_billing") throw new ActionError("This vehicle is not awaiting billing.", 409);
+    {
       const settings = await tx.settings.findUnique({ where: { tenantId: DEFAULT_TENANT } });
       const tz = settings?.timezone || "Asia/Kolkata";
       const todayStr = getTodayString(tz);
 
-      const counter = await tx.counter.findUnique({ where: { tenantId: DEFAULT_TENANT } });
-      let billingSerial = counter?.billingSerial ?? 0;
-
-      const allTickets = await tx.ticket.findMany({ where: { tenantId: DEFAULT_TENANT } });
-      const maxExisting = allTickets
-        .filter((tk) => tk.billingSerial != null && getTodayString(tz, tk.billingTime || tk.entryTime) === todayStr)
-        .reduce((max, tk) => Math.max(max, tk.billingSerial!), 0);
-      if (billingSerial < maxExisting) billingSerial = maxExisting;
-      billingSerial += 1;
-
-      const nextInvoice = invoice.trim() || null;
+      // Ensure the counter exists, then atomically claim the next billing serial
+      // (row-locked) so two concurrent completions can't print the same B- number.
       await tx.counter.upsert({
         where: { tenantId: DEFAULT_TENANT },
-        update: { billingSerial },
-        create: { tenantId: DEFAULT_TENANT, boe: 1000, serial: 0, billingSerial, loadingSerial: 0, lastResetDate: todayStr },
+        update: {},
+        create: { tenantId: DEFAULT_TENANT, boe: 1000, serial: 0, billingSerial: 0, loadingSerial: 0, lastResetDate: todayStr },
       });
+      const bumped = await tx.counter.update({
+        where: { tenantId: DEFAULT_TENANT },
+        data: { billingSerial: { increment: 1 } },
+      });
+      let billingSerial = bumped.billingSerial;
+      // Defensive floor: recover the true max from today's tickets, applied atomically.
+      const maxExisting = (await tx.ticket.findMany({ where: { tenantId: DEFAULT_TENANT } }))
+        .filter((tk) => tk.billingSerial != null && getTodayString(tz, tk.billingTime || tk.entryTime) === todayStr)
+        .reduce((max, tk) => Math.max(max, tk.billingSerial!), 0);
+      if (billingSerial <= maxExisting) {
+        const fixed = await tx.counter.update({
+          where: { tenantId: DEFAULT_TENANT },
+          data: { billingSerial: maxExisting + 1 },
+        });
+        billingSerial = fixed.billingSerial;
+      }
+
+      const nextInvoice = invoice.trim() || null;
       await tx.ticket.update({
         where: { id },
         data: {
@@ -707,7 +837,9 @@ export async function skipBilling(id: string, tenantId?: string): Promise<YardSt
   const DEFAULT_TENANT = tenantOf(tenantId); // scope all queries below to the caller's workspace (shadows the module default)
   await prep(DEFAULT_TENANT);
   const t = await prisma.ticket.findUnique({ where: { id } });
-  if (t && t.tenantId === DEFAULT_TENANT) {
+  if (!t || t.tenantId !== DEFAULT_TENANT) throw new ActionError("Ticket not found.", 404);
+  if (t.status !== "awaiting_billing") throw new ActionError("This vehicle is not awaiting billing.", 409);
+  {
     await prisma.$transaction(async (tx) => {
       const pos = await nextQueuePos(tx, DEFAULT_TENANT);
       await tx.ticket.update({ where: { id }, data: { queuePos: pos } });
@@ -732,7 +864,12 @@ export async function permitExit(id: string, tenantId?: string): Promise<YardSta
   const DEFAULT_TENANT = tenantOf(tenantId); // scope all queries below to the caller's workspace (shadows the module default)
   await prep(DEFAULT_TENANT);
   const t = await prisma.ticket.findUnique({ where: { id } });
-  if (t && t.tenantId === DEFAULT_TENANT && t.status === "awaiting_exit") {
+  if (!t || t.tenantId !== DEFAULT_TENANT) throw new ActionError("Ticket not found.", 404);
+  if (t.status !== "awaiting_exit") {
+    const why = t.status === "held" ? "This vehicle is on hold — release it first." : "This vehicle is not cleared for exit.";
+    throw new ActionError(why, 409);
+  }
+  {
     await prisma.$transaction([
       prisma.ticket.update({ where: { id }, data: { status: "exited", exitTime: new Date().toISOString() } }),
       prisma.activityEntry.create({
@@ -756,7 +893,9 @@ export async function holdVehicle(id: string, reason: string, tenantId?: string)
   const DEFAULT_TENANT = tenantOf(tenantId); // scope all queries below to the caller's workspace (shadows the module default)
   await prep(DEFAULT_TENANT);
   const t = await prisma.ticket.findUnique({ where: { id } });
-  if (t && t.tenantId === DEFAULT_TENANT && t.status === "awaiting_exit") {
+  if (!t || t.tenantId !== DEFAULT_TENANT) throw new ActionError("Ticket not found.", 404);
+  if (t.status !== "awaiting_exit") throw new ActionError("Only vehicles awaiting exit can be held.", 409);
+  {
     const holdReason = reason.trim() || "Unspecified";
     await prisma.$transaction([
       prisma.ticket.update({ where: { id }, data: { status: "held", holdReason } }),
@@ -774,6 +913,34 @@ export async function holdVehicle(id: string, reason: string, tenantId?: string)
       }),
     ]);
   }
+  return buildState(DEFAULT_TENANT);
+}
+
+// Release a held vehicle back into the exit queue (held -> awaiting_exit). Without
+// this a held ticket was a dead end. The audit entry reuses the existing `hold`
+// action value (a distinct `release_hold` enum value would need a schema change);
+// the detail line disambiguates it.
+export async function releaseHold(id: string, tenantId?: string): Promise<YardState> {
+  const DEFAULT_TENANT = tenantOf(tenantId); // scope all queries below to the caller's workspace (shadows the module default)
+  await prep(DEFAULT_TENANT);
+  const t = await prisma.ticket.findUnique({ where: { id } });
+  if (!t || t.tenantId !== DEFAULT_TENANT) throw new ActionError("Ticket not found.", 404);
+  if (t.status !== "held") throw new ActionError("This vehicle is not on hold.", 409);
+  await prisma.$transaction([
+    prisma.ticket.update({ where: { id }, data: { status: "awaiting_exit", holdReason: null } }),
+    prisma.activityEntry.create({
+      data: {
+        id: rid(),
+        tenantId: DEFAULT_TENANT,
+        at: new Date().toISOString(),
+        action: "hold",
+        ticketId: t.id,
+        serial: t.serial,
+        vehicle: t.vehicle,
+        detail: `Released from hold — returned to exit queue${t.holdReason ? ` (was: ${t.holdReason})` : ""}`,
+      },
+    }),
+  ]);
   return buildState(DEFAULT_TENANT);
 }
 
@@ -992,7 +1159,7 @@ export async function createTenant(input: {
       },
     });
   });
-  return buildState();
+  return buildState(DEFAULT_TENANT, { superadmin: true });
 }
 
 export async function updateTenantConfig(id: string, seats: number, modules: string[]): Promise<YardState> {
@@ -1012,7 +1179,7 @@ export async function updateTenantConfig(id: string, seats: number, modules: str
       }),
     ]);
   }
-  return buildState();
+  return buildState(DEFAULT_TENANT, { superadmin: true });
 }
 
 export async function extendTenantLicense(id: string, years: number): Promise<YardState> {
@@ -1035,7 +1202,7 @@ export async function extendTenantLicense(id: string, years: number): Promise<Ya
       }),
     ]);
   }
-  return buildState();
+  return buildState(DEFAULT_TENANT, { superadmin: true });
 }
 
 export async function setTenantLicense(
@@ -1059,14 +1226,23 @@ export async function setTenantLicense(
       }),
     ]);
   }
-  return buildState();
+  return buildState(DEFAULT_TENANT, { superadmin: true });
 }
 
 export async function deleteTenant(id: string): Promise<YardState> {
   await prep();
   const t = await prisma.tenant.findUnique({ where: { id } });
   if (t) {
+    // Cascade: removing only the Tenant row used to orphan its operators (who could
+    // still log in), plus its tickets/settings/counter/alerts/activity. Delete the
+    // whole workspace in one transaction. The `default` workspace is never deletable.
     await prisma.$transaction([
+      prisma.operator.deleteMany({ where: { tenantId: id } }),
+      prisma.ticket.deleteMany({ where: { tenantId: id } }),
+      prisma.alert.deleteMany({ where: { tenantId: id } }),
+      prisma.activityEntry.deleteMany({ where: { tenantId: id } }),
+      prisma.settings.deleteMany({ where: { tenantId: id } }),
+      prisma.counter.deleteMany({ where: { tenantId: id } }),
       prisma.tenant.delete({ where: { id } }),
       prisma.activityEntry.create({
         data: {
@@ -1079,7 +1255,7 @@ export async function deleteTenant(id: string): Promise<YardState> {
       }),
     ]);
   }
-  return buildState();
+  return buildState(DEFAULT_TENANT, { superadmin: true });
 }
 
 /* ---------- Operator Management ---------- */
@@ -1108,36 +1284,39 @@ export async function createOperator(input: {
       (o) => o.tenantId === input.tenantId && o.role !== "Administrator" && o.username !== "admin",
     ).length;
     if (seatsUsed >= seatLimit) {
-      throw new Error(`Operator seat limit reached (${seatLimit}). Upgrade your license.`);
+      throw new ActionError(`Operator seat limit reached (${seatLimit}). Upgrade your license.`, 422);
     }
   }
 
   const username = input.username.trim().toLowerCase();
-  if (!operators.some((o) => o.username === username)) {
-    const passcode = await hashPassword(input.passcode);
-    await prisma.$transaction([
-      prisma.operator.create({
-        data: {
-          id: `op-${Date.now()}`,
-          name: input.name,
-          username,
-          passcode,
-          role: input.role,
-          tenantId: input.tenantId ?? null,
-          isFirstLogin: true,
-        },
-      }),
-      prisma.activityEntry.create({
-        data: {
-          id: rid(),
-          tenantId: scope,
-          at: new Date().toISOString(),
-          action: "reset",
-          detail: `Registered operator: ${input.name} (${input.role})`,
-        },
-      }),
-    ]);
+  // A duplicate username used to be silently skipped while still returning 200, so
+  // the UI toasted "Operator registered" though nothing happened. Signal it honestly.
+  if (operators.some((o) => o.username === username)) {
+    throw new ActionError("An operator with this username already exists.", 409);
   }
+  const passcode = await hashPassword(input.passcode);
+  await prisma.$transaction([
+    prisma.operator.create({
+      data: {
+        id: `op-${rid()}`,
+        name: input.name,
+        username,
+        passcode,
+        role: input.role,
+        tenantId: input.tenantId ?? null,
+        isFirstLogin: true,
+      },
+    }),
+    prisma.activityEntry.create({
+      data: {
+        id: rid(),
+        tenantId: scope,
+        at: new Date().toISOString(),
+        action: "reset",
+        detail: `Registered operator: ${input.name} (${input.role})`,
+      },
+    }),
+  ]);
   return buildState(scope);
 }
 
@@ -1152,7 +1331,7 @@ export async function deleteOperator(
     // A non-superadmin admin may only delete operators inside their own tenant.
     const allowed = caller.role === "superadmin" || sameTenant(op.tenantId, caller.tenantId);
     if (!allowed) {
-      throw new Error("Not authorized to remove this operator.");
+      throw new ActionError("Not authorized to remove this operator.", 403);
     }
     await prisma.$transaction([
       prisma.operator.delete({ where: { id } }),
@@ -1197,13 +1376,13 @@ export async function changeOperatorPassword(
       callerIsSuper ||
       (callerIsAdmin && sameTenant(op.tenantId, caller.tenantId));
     if (!allowed) {
-      throw new Error("Not authorized to change this password.");
+      throw new ActionError("Not authorized to change this password.", 403);
     }
     // Self-service change must prove knowledge of the current passcode. An admin
     // resetting a DIFFERENT operator's password (isSelf === false) does not.
     if (isSelf) {
       const ok = currentPasscode ? await verifyPassword(op.passcode, currentPasscode) : false;
-      if (!ok) throw new Error("Current passcode is incorrect.");
+      if (!ok) throw new ActionError("Current passcode is incorrect.", 403);
     }
     const hashed = await hashPassword(passcode);
     await prisma.$transaction([

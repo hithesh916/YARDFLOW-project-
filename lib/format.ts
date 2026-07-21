@@ -2,9 +2,23 @@ export function pad(n: number): string {
   return String(n).padStart(2, "0");
 }
 
-export function fmtTime(iso: string | Date | null | undefined): string {
+export function fmtTime(iso: string | Date | null | undefined, timeZone?: string): string {
   if (!iso) return "—";
   const d = typeof iso === "string" ? new Date(iso) : iso;
+  // When a timezone is supplied (e.g. printed tokens using the terminal's configured
+  // timezone), format in it so the time agrees with reports and the reset boundary.
+  if (timeZone) {
+    try {
+      return new Intl.DateTimeFormat("en-US", {
+        timeZone,
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: true,
+      }).format(d);
+    } catch {
+      // fall through to browser-local
+    }
+  }
   let h = d.getHours();
   const m = d.getMinutes();
   const ampm = h >= 12 ? "PM" : "AM";
@@ -16,8 +30,9 @@ export function fmtClock(d: Date): string {
   return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 }
 
-export function fmtDate(d: Date): string {
+export function fmtDate(d: Date, timeZone?: string): string {
   return d.toLocaleDateString("en-US", {
+    ...(timeZone ? { timeZone } : {}),
     month: "short",
     day: "2-digit",
     year: "numeric",

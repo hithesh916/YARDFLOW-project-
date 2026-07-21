@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createTenant, extendTenantLicense, deleteTenant, updateTenantConfig, setTenantLicense } from "@/lib/db";
+import { createTenant, extendTenantLicense, deleteTenant, updateTenantConfig, setTenantLicense, isActionError } from "@/lib/db";
 import { requireSuperadmin } from "@/lib/api-auth";
 
 export const runtime = "nodejs";
@@ -44,9 +44,10 @@ export async function POST(req: Request) {
 
     return NextResponse.json(state);
   } catch (err) {
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Request failed" },
-      { status: 500 },
-    );
+    if (isActionError(err)) {
+      return NextResponse.json({ error: err.message }, { status: err.status });
+    }
+    console.error("tenant action failed:", err);
+    return NextResponse.json({ error: "Request failed." }, { status: 500 });
   }
 }

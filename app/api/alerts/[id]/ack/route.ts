@@ -12,6 +12,15 @@ export async function POST(
   const s = requireAuth(req);
   if (s instanceof NextResponse) return s;
   const { id } = await params;
-  const state = await ackAlert(Number(id), s.tenantId ?? undefined);
-  return NextResponse.json({ state });
+  const alertId = Number(id);
+  if (!Number.isInteger(alertId)) {
+    return NextResponse.json({ error: "Invalid alert id." }, { status: 400 });
+  }
+  try {
+    const state = await ackAlert(alertId, s.tenantId ?? undefined);
+    return NextResponse.json({ state });
+  } catch (err) {
+    console.error("ackAlert failed:", err);
+    return NextResponse.json({ error: "Could not acknowledge the alert." }, { status: 500 });
+  }
 }

@@ -20,12 +20,14 @@ export default function LoadingPage() {
   const tz = settings?.timezone || "Asia/Kolkata";
   const todayStr = getLocalDateString(new Date(), tz);
 
-  // Get all tickets currently waiting for loading (either awaiting loading or awaiting billing)
+  // Only vehicles that have completed billing are eligible for loading. Unbilled
+  // (awaiting_billing) tickets are intentionally excluded — loading one would let a
+  // vehicle reach the exit unpaid, and the server now rejects it with a 409 anyway.
   const loadingQueue = filterBySearch(tickets, search).filter(
-    (t) => t.status === "awaiting_loading" || t.status === "awaiting_billing",
+    (t) => t.status === "awaiting_loading",
   );
   const activeGateTickets = tickets.filter(
-    (t) => t.status === "awaiting_loading" || t.status === "awaiting_billing",
+    (t) => t.status === "awaiting_loading",
   );
 
   const [boe, setBoe] = useState("");
@@ -259,6 +261,10 @@ export default function LoadingPage() {
   }
 
   async function confirm() {
+    // Guard against Enter-key / double-click re-entry while a submit is already in
+    // flight — otherwise a second run acts on stale state and can double-process.
+    if (busy) return;
+
     // Validate required fields
     if (!workOrder.trim()) {
       toast.error("Work Order No is required.");
@@ -269,97 +275,91 @@ export default function LoadingPage() {
       return;
     }
 
-    setBusy(true);
-
     const targetsToProcess: Ticket[] = [];
-
     if (selectedTicketIds.length > 0) {
-      const selectedTickets = tickets.filter((t) => selectedTicketIds.includes(t.id));
-      targetsToProcess.push(...selectedTickets);
+      targetsToProcess.push(...tickets.filter((t) => selectedTicketIds.includes(t.id)));
     } else {
-      // If no explicit selection, pick active gate ticket(s) matching the BOE
-      const allMatches = tickets.filter(
-        (t) => t.boe.toUpperCase() === boe.trim().toUpperCase() && (t.status === "awaiting_loading" || t.status === "awaiting_billing")
+      // If no explicit selection, pick the billed vehicle(s) matching the BOE.
+      targetsToProcess.push(
+        ...tickets.filter(
+          (t) => t.boe.toUpperCase() === boe.trim().toUpperCase() && t.status === "awaiting_loading",
+        ),
       );
-      const preferredMatches = allMatches.filter((t) => t.status === "awaiting_loading");
-      targetsToProcess.push(...(preferredMatches.length > 0 ? preferredMatches : allMatches));
     }
 
     if (targetsToProcess.length === 0) {
       toast.error("No active vehicle found to approve.");
-      setBusy(false);
       return;
     }
 
-    let successCount = 0;
-    let lastProcessedTicket: Ticket | null = null;
+    setBusy(true);
+    try {
+      let successCount = 0;
+      let lastProcessedTicket: Ticket | null = null;
 
-    const printTickets: Ticket[] = [];
-    for (const target of targetsToProcess) {
-      const gTokenVal = target.createdSource === "billing" ? "N/A" : `G-${String(target.serial).padStart(3, "0")}`;
-      const bTokenVal = target.status === "awaiting_billing" ? "" : `B-${String(target.billingSerial ?? target.serial).padStart(3, "0")}`;
-      
-      const ok = await ticketAction(target.id, "complete-loading", {
-        boe: target.boe,
-        workOrder: workOrder.trim(),
-        agent: agent.trim() || target.billingAgent || target.agent,
-        remarks: remarks.trim() || target.loadingRemarks || "",
-        gateToken: gTokenVal,
-        billingToken: bTokenVal,
-      });
+      const printTickets: Ticket[] = [];
+      for (const target of targetsToProcess) {
+        const gTokenVal = target.createdSource === "billing" ? "N/A" : `G-${String(target.serial).padStart(3, "0")}`;
+        const bTokenVal = `B-${String(target.billingSerial ?? target.serial).padStart(3, "0")}`;
 
-      if (ok) {
-        successCount++;
-        const freshTicket = useStore.getState().tickets.find((t) => t.id === target.id);
-        const printTicket = freshTicket || {
-          ...target,
+        const ok = await ticketAction(target.id, "complete-loading", {
+          boe: target.boe,
           workOrder: workOrder.trim(),
-          loadingEnd: new Date().toISOString(),
-          loadingAgent: agent.trim() || target.billingAgent || target.agent,
-          loadingRemarks: remarks.trim(),
-          manualGateToken: gTokenVal,
-          manualBillingToken: bTokenVal || null,
-        };
-        lastProcessedTicket = printTicket;
-        printTickets.push(printTicket);
-      }
-    }
+          agent: agent.trim() || target.billingAgent || target.agent,
+          remarks: remarks.trim() || target.loadingRemarks || "",
+          gateToken: gTokenVal,
+          billingToken: bTokenVal,
+        });
 
-    const groupedByVehicle = printTickets.reduce<Record<string, Ticket[]>>((acc, ticket) => {
-      const key = ticket.vehicle || `UNKNOWN-${ticket.id}`;
-      acc[key] = acc[key] || [];
-      acc[key].push(ticket);
-      return acc;
-    }, {});
-
-    // Print each ticket individually with proper delays
-    for (let i = 0; i < printTickets.length; i++) {
-      const ticket = printTickets[i];
-      // Add delay between prints to prevent conflicts and allow print dialog to complete
-      if (i > 0) {
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        if (ok) {
+          successCount++;
+          const freshTicket = useStore.getState().tickets.find((t) => t.id === target.id);
+          const printTicket = freshTicket || {
+            ...target,
+            workOrder: workOrder.trim(),
+            loadingEnd: new Date().toISOString(),
+            loadingAgent: agent.trim() || target.billingAgent || target.agent,
+            loadingRemarks: remarks.trim(),
+            manualGateToken: gTokenVal,
+            manualBillingToken: bTokenVal || null,
+          };
+          lastProcessedTicket = printTicket;
+          printTickets.push(printTicket);
+        }
       }
-      // Print each ticket to its own iframe (don't share windows)
-      await printLoadingToken(ticket);
-    }
 
-    if (successCount > 0) {
-      setBoe("");
-      // Do NOT clear workOrder — user should re-use it for the next vehicle
-      setAgent("");
-      setRemarks("");
-      setGateToken("");
-      setBillingToken("");
-      setMatchedTicket(null);
-      setSelectedTicketIds([]);
-      setActiveSearch(null);
-      toast.success(`Successfully processed and printed ${successCount} pass(es)`);
-      if (lastProcessedTicket) {
-        setLastLoaded(lastProcessedTicket);
+      // Print each pass to its own iframe. A single print failure must not abort the
+      // rest of the batch (and, via the finally below, must not wedge the button).
+      for (let i = 0; i < printTickets.length; i++) {
+        if (i > 0) {
+          await new Promise((resolve) => setTimeout(resolve, 1000));
+        }
+        try {
+          await printLoadingToken(printTickets[i]);
+        } catch (e) {
+          console.error("Loading pass print failed:", e);
+          toast.error(`Could not print pass for ${printTickets[i].vehicle}.`);
+        }
       }
-      setBusy(false);
-    } else {
-      toast.error("Failed to process approval.");
+
+      if (successCount > 0) {
+        setBoe("");
+        // Do NOT clear workOrder — user should re-use it for the next vehicle
+        setAgent("");
+        setRemarks("");
+        setGateToken("");
+        setBillingToken("");
+        setMatchedTicket(null);
+        setSelectedTicketIds([]);
+        setActiveSearch(null);
+        toast.success(`Successfully processed and printed ${successCount} pass(es)`);
+        if (lastProcessedTicket) {
+          setLastLoaded(lastProcessedTicket);
+        }
+      } else {
+        toast.error("Failed to process approval.");
+      }
+    } finally {
       setBusy(false);
     }
   }
@@ -860,7 +860,7 @@ export default function LoadingPage() {
                       : (gateToken || (lastLoaded?.manualGateToken || (lastLoaded ? `G-${String(lastLoaded.serial).padStart(3, "0")}` : "—")))
                   }
                 />
-                <TokenRow k="BILLING TOKEN:" v={billingToken || (lastLoaded?.manualBillingToken || (lastLoaded ? `B-${String((lastLoaded.loadingSerial ?? lastLoaded.serial)).padStart(3, "0")}` : "—"))} />
+                <TokenRow k="BILLING TOKEN:" v={billingToken || (lastLoaded?.manualBillingToken || (lastLoaded ? `B-${String((lastLoaded.billingSerial ?? lastLoaded.serial)).padStart(3, "0")}` : "—"))} />
                 <TokenRow
                   k="LOADING TIME:"
                   v={boe ? fmtTime(new Date().toISOString()) : (lastLoaded?.loadingEnd ? fmtTime(lastLoaded.loadingEnd) : "—")}
@@ -870,7 +870,10 @@ export default function LoadingPage() {
               {/* Scannable QR Code for Exit Gate Scan */}
               {(matchedTicket || lastLoaded) && (
                 <div className="mt-4 flex flex-col items-center justify-center border-t border-slate-100 pt-4">
-                  <QrCode value={matchedTicket?.vehicle || lastLoaded?.vehicle || ""} size={112} className="border border-slate-200 p-1" />
+                  {/* Encode the ticket id — that's what the printed pass encodes and
+                      what the exit scanner looks up. Encoding the vehicle here made the
+                      preview disagree with the real pass. */}
+                  <QrCode value={matchedTicket?.id || lastLoaded?.id || ""} size={112} className="border border-slate-200 p-1" />
                   <p className="mt-2 text-[9px] font-bold text-slate-400 uppercase tracking-wider">
                     Exit Gate Scan Code
                   </p>
@@ -938,7 +941,7 @@ export default function LoadingPage() {
                   >
                     <div className="flex flex-col items-start">
                       <span className="font-extrabold text-[12px] text-slate-800 dark:text-slate-100">{t.boe}</span>
-                      <span className="text-[10px] text-slate-400 mt-0.5">SN L-{String(t.billingSerial ?? t.serial).padStart(3, "0")}</span>
+                      <span className="text-[10px] text-slate-400 mt-0.5">SN L-{String(t.loadingSerial ?? t.serial).padStart(3, "0")}</span>
                       <span className="text-[9px] text-slate-400 font-medium truncate max-w-[120px]">{t.loadingAgent || t.agent}</span>
                     </div>
                     <div className="flex flex-col items-end gap-1.5 shrink-0">
@@ -947,7 +950,7 @@ export default function LoadingPage() {
                       </span>
                       <button
                         onClick={() => printLoadingToken(t)}
-                        className="flex items-center gap-1 rounded bg-slate-900 px-2 py-0.5 text-[9px] font-bold text-white shadow-sm hover:bg-slate-850 active:scale-95 transition-all cursor-pointer"
+                        className="flex items-center gap-1 rounded bg-slate-900 px-2 py-0.5 text-[9px] font-bold text-white shadow-sm hover:bg-slate-800 active:scale-95 transition-all cursor-pointer"
                       >
                         <Printer size={9} /> PRINT
                       </button>

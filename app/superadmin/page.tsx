@@ -901,8 +901,8 @@ export default function SuperAdminHub() {
                 <p className="text-sm font-extrabold text-slate-800 mt-0.5">superadmin</p>
               </div>
             </div>
-            <div className="flex items-center gap-2 text-xs font-mono text-amber-600 bg-amber-50 border border-amber-100 px-3 py-1.5 rounded-lg">
-              <span>PASSCODE KEY: super123</span>
+            <div className="flex items-center gap-2 text-xs font-mono text-slate-500 bg-slate-50 border border-slate-100 px-3 py-1.5 rounded-lg">
+              <span>PASSCODE: •••••••• (hidden)</span>
             </div>
           </div>
         </Panel>

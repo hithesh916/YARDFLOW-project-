@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { MapPin, Printer, Truck } from "lucide-react";
 import { toast } from "sonner";
 import { Panel } from "@/components/panel";
@@ -26,6 +26,9 @@ export default function EntryPage() {
   const [entriesExpanded, setEntriesExpanded] = useState(false);
   // Cross-gate: BOE pre-filled from billing-gate record
   const [prefillBoe, setPrefillBoe] = useState<string | null>(null);
+  // The matched ticket we last auto-filled from — so a background poll can't re-fill
+  // (and clobber) the agent/remarks the operator is typing.
+  const lastFilledMatchRef = useRef<string>("");
 
   // Cross-gate lookup: when vehicle or boe is typed, check if billing gate processed this vehicle first
   useEffect(() => {
@@ -61,11 +64,17 @@ export default function EntryPage() {
       if (boe.trim().toUpperCase() !== matched.boe.toUpperCase()) {
         setBoe(matched.boe);
       }
-      setAgent(matched.billingAgent || matched.agent || "");
-      setRemarks(matched.billingRemarks || matched.remarks || "");
+      // Fill agent/remarks only when the matched ticket changes (a user action),
+      // not on every background tickets poll.
+      if (lastFilledMatchRef.current !== matched.id) {
+        setAgent(matched.billingAgent || matched.agent || "");
+        setRemarks(matched.billingRemarks || matched.remarks || "");
+        lastFilledMatchRef.current = matched.id;
+      }
       setPrefillBoe(matched.boe);
     } else {
       setPrefillBoe(null);
+      lastFilledMatchRef.current = "";
     }
   }, [vehicle, boe, tickets]);
 

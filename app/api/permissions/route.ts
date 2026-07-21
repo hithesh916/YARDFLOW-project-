@@ -17,9 +17,9 @@ export async function POST(req: Request) {
     const state = await updateRolePermissions(role, allowedPaths, callerTenant);
     return NextResponse.json(state);
   } catch (err) {
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Request failed" },
-      { status: 500 },
-    );
+    // Log the real error server-side; return a generic message so Prisma internals
+    // (table/column/connection details) never reach the client.
+    console.error("updateRolePermissions failed:", err);
+    return NextResponse.json({ error: "Could not update permissions." }, { status: 500 });
   }
 }

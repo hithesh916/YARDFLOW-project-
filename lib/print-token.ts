@@ -91,7 +91,14 @@ export function writePrintDocument(html: string, targetWindow?: Window): void {
     return;
   }
 
+  // Remove any still-present print iframe from a previous (possibly rapid) reprint so
+  // hidden iframes can't stack up for the length of the 60s safety-net timeout.
+  document
+    .querySelectorAll('iframe[data-yardflow-print="1"]')
+    .forEach((el) => el.remove());
+
   const iframe = document.createElement("iframe");
+  iframe.setAttribute("data-yardflow-print", "1");
   Object.assign(iframe.style, {
     position: "fixed",
     right: "0",
@@ -234,7 +241,7 @@ ${THERMAL_CSS}
 <body>
   <div class="ticket">
     <div class="brand">
-      ${settings?.logoUrl ? `<img src="${settings.logoUrl}" alt="Company Logo" style="max-height: 40px; margin-bottom: 5px; object-fit: contain;" />` : ""}
+      ${logoImgTag(settings?.logoUrl)}
       <p class="name">${settings?.companyName ? escapeHtml(settings.companyName) : "YARDFLOW MANAGER"}</p>
       ${settings?.terminalName ? `<div class="terminal-lbl">${escapeHtml(settings.terminalName)}</div>` : ""}
       ${settings?.companyAddress ? `<div class="address-lbl">${escapeHtml(settings.companyAddress)}</div>` : ""}
@@ -251,8 +258,8 @@ ${THERMAL_CSS}
       ${row("VEHICLE", ticket.vehicle)}
       ${row("BOE", ticket.boe)}
       ${row("CHA / AGENT", ticket.agent)}
-      ${row("ENTRY TIME", fmtTime(entry))}
-      ${row("ENTRY DATE", fmtDate(entry))}
+      ${row("ENTRY TIME", fmtTime(entry, settings?.timezone))}
+      ${row("ENTRY DATE", fmtDate(entry, settings?.timezone))}
     </div>
     <div class="divider"></div>
     <p class="valid">VALID FOR TODAY ONLY</p>
@@ -408,7 +415,7 @@ ${THERMAL_CSS}
 <body>
   <div class="ticket">
     <div class="brand">
-      ${settings?.logoUrl ? `<img src="${settings.logoUrl}" alt="Company Logo" style="max-height: 40px; margin-bottom: 5px; object-fit: contain;" />` : ""}
+      ${logoImgTag(settings?.logoUrl)}
       <p class="name">${settings?.companyName ? escapeHtml(settings.companyName) : "YARDFLOW MANAGER"}</p>
       ${settings?.terminalName ? `<div class="terminal-lbl">${escapeHtml(settings.terminalName)}</div>` : ""}
       ${settings?.companyAddress ? `<div class="address-lbl">${escapeHtml(settings.companyAddress)}</div>` : ""}
@@ -425,8 +432,8 @@ ${THERMAL_CSS}
       ${row("BOE", ticket.boe)}
       ${row("CHA / AGENT", ticket.agent)}
       ${row("INVOICE NO", ticket.invoice || "N/A")}
-      ${row("BILLING TIME", fmtTime(new Date()))}
-      ${row("BILLING DATE", fmtDate(new Date()))}
+      ${row("BILLING TIME", fmtTime(new Date(), settings?.timezone))}
+      ${row("BILLING DATE", fmtDate(new Date(), settings?.timezone))}
     </div>
     <div class="divider"></div>
     
@@ -589,7 +596,7 @@ ${THERMAL_CSS}
 <body>
   <div class="ticket">
     <div class="brand">
-      ${settings?.logoUrl ? `<img src="${settings.logoUrl}" alt="Company Logo" style="max-height: 40px; margin-bottom: 5px; object-fit: contain;" />` : ""}
+      ${logoImgTag(settings?.logoUrl)}
       <p class="name">${settings?.companyName ? escapeHtml(settings.companyName) : "YARDFLOW MANAGER"}</p>
       ${settings?.terminalName ? `<div class="terminal-lbl">${escapeHtml(settings.terminalName)}</div>` : ""}
       ${settings?.companyAddress ? `<div class="address-lbl">${escapeHtml(settings.companyAddress)}</div>` : ""}
@@ -608,8 +615,8 @@ ${THERMAL_CSS}
       ${row("GATE TOKEN NO", ticket.createdSource === "billing" ? "N/A" : (ticket.manualGateToken || `G-${String(ticket.serial).padStart(3, "0")}`))}
       ${row("VEHICLE NO", ticket.createdSource === "billing" ? "N/A" : ticket.vehicle)}
       ${row("REMARKS", ticket.loadingRemarks || "—")}
-      ${row("COMPLETED TIME", fmtTime(loadingTime))}
-      ${row("COMPLETED DATE", fmtDate(loadingTime))}
+      ${row("COMPLETED TIME", fmtTime(loadingTime, settings?.timezone))}
+      ${row("COMPLETED DATE", fmtDate(loadingTime, settings?.timezone))}
     </div>
     <div class="divider"></div>
     
@@ -672,8 +679,8 @@ export async function printLoadingTokens(tickets: Ticket[], targetWindow?: Windo
           ${row("GATE TOKEN NO", ticket.manualGateToken || `G-${String(ticket.serial).padStart(3, "0")}`)}
           ${row("VEHICLE NO", ticket.createdSource === "billing" ? "N/A" : ticket.vehicle)}
           ${row("REMARKS", ticket.loadingRemarks || "—")}
-          ${row("COMPLETED TIME", fmtTime(loadingTime))}
-          ${row("COMPLETED DATE", fmtDate(loadingTime))}
+          ${row("COMPLETED TIME", fmtTime(loadingTime, settings?.timezone))}
+          ${row("COMPLETED DATE", fmtDate(loadingTime, settings?.timezone))}
         </div>
         <div class="divider"></div>
         <div class="qr-code-section">
@@ -750,8 +757,8 @@ export async function printCombinedLoadingToken(tickets: Ticket[], targetWindow?
       const g = t.createdSource === "billing" ? "N/A" : (t.manualGateToken || `G-${String(t.serial).padStart(3, "0")}`);
       const b = t.manualBillingToken || (t.status === "awaiting_billing" ? "B-PENDING" : `B-${String(t.billingSerial ?? t.serial).padStart(3, "0")}`);
       const invoice = t.invoice || "N/A";
-      const completedTime = t.loadingEnd ? fmtTime(new Date(t.loadingEnd)) : fmtTime(new Date());
-      const completedDate = t.loadingEnd ? fmtDate(new Date(t.loadingEnd)) : fmtDate(new Date());
+      const completedTime = t.loadingEnd ? fmtTime(new Date(t.loadingEnd), settings?.timezone) : fmtTime(new Date(), settings?.timezone);
+      const completedDate = t.loadingEnd ? fmtDate(new Date(t.loadingEnd), settings?.timezone) : fmtDate(new Date(), settings?.timezone);
       const agentName = t.loadingAgent || t.billingAgent || t.agent || "Unassigned";
 
       return `
@@ -770,9 +777,9 @@ export async function printCombinedLoadingToken(tickets: Ticket[], targetWindow?
         </div>
       </div>`;
     })
-    .join("\\n");
+    .join("\n");
 
-  const agentsHtml = agents.map((a) => `<div class="agent-item">${escapeHtml(a)}</div>`).join("\\n");
+  const agentsHtml = agents.map((a) => `<div class="agent-item">${escapeHtml(a)}</div>`).join("\n");
   const gateHtml = gateTokens.map((g) => `<span class="token">${escapeHtml(g)}</span>`).join(" ");
   const billingHtml = billingTokens.map((b) => `<span class="token">${escapeHtml(b)}</span>`).join(" ");
 
@@ -838,4 +845,16 @@ function escapeHtml(s: string): string {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
+}
+
+// settings.logoUrl is operator-settable via /api/settings and flows into printed HTML.
+// Every other field is escaped; the logo was the one gap — a value like
+// `x" onerror="…` or `javascript:…` would run script in the app origin when a token
+// prints. Allow only data:image/… or https: URLs and HTML-escape the attribute.
+function logoImgTag(logoUrl?: string | null): string {
+  const url = logoUrl?.trim();
+  if (!url) return "";
+  const allowed = /^data:image\//i.test(url) || /^https:\/\//i.test(url);
+  if (!allowed) return "";
+  return `<img src="${escapeHtml(url)}" alt="Company Logo" style="max-height: 40px; margin-bottom: 5px; object-fit: contain;" />`;
 }

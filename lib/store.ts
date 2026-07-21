@@ -121,6 +121,8 @@ function stateUrl(viewTenantId: string | null, user: OperatorUser | null): strin
 // Module-level interval so it survives Zustand re-renders
 let _pollTimer: ReturnType<typeof setInterval> | null = null;
 let _polling = false; // prevent overlapping fetches
+let _pollFails = 0;   // consecutive failures, drives exponential-ish backoff
+let _pollSkips = 0;   // ticks skipped so far during backoff
 
 export const useStore = create<Store>((set, get) => ({
   tickets: [],
@@ -422,8 +424,23 @@ export const useStore = create<Store>((set, get) => ({
 
   startPolling: () => {
     if (_pollTimer) return; // already polling
+    _pollFails = 0;
+    _pollSkips = 0;
     _pollTimer = setInterval(async () => {
       if (_polling) return;
+      // Pause polling entirely while the tab is backgrounded — 20 idle gate tablets
+      // shouldn't keep waking cold-start serverless functions every 10s.
+      if (typeof document !== "undefined" && document.hidden) return;
+      // Backoff: after consecutive failures, skip ticks so we don't hammer a down
+      // server every 10s. Up to ~60s between attempts; resets on the next success.
+      if (_pollFails > 0) {
+        const skipsNeeded = Math.min(_pollFails, 5);
+        if (_pollSkips < skipsNeeded) {
+          _pollSkips++;
+          return;
+        }
+        _pollSkips = 0;
+      }
       _polling = true;
       try {
         // Cookie carries auth + tenant scope automatically. A superadmin viewing a
@@ -432,12 +449,19 @@ export const useStore = create<Store>((set, get) => ({
         const res = await fetch(stateUrl(viewTenantId, pollUser), { cache: "no-store" });
         if (res.status === 401) {
           // Session gone/expired server-side — drop the client session too.
+          _pollFails = 0;
           set({ currentUser: null });
           if (typeof window !== "undefined") {
             localStorage.removeItem("yardflow_user");
           }
           return;
         }
+        if (!res.ok) {
+          // 5xx/other — count as a failure so backoff kicks in.
+          _pollFails++;
+          return;
+        }
+        _pollFails = 0;
         if (res.ok) {
           const state: YardState = await res.json();
 
@@ -474,11 +498,12 @@ export const useStore = create<Store>((set, get) => ({
           });
         }
       } catch {
-        // silent background poll handler
+        // Network error — count it so the backoff above slows the retry cadence.
+        _pollFails++;
       } finally {
         _polling = false;
       }
-    }, 10_000); // refresh every 10 seconds
+    }, 10_000); // base cadence; effective interval grows under failure/backoff
   },
 
   stopPolling: () => {
