@@ -48,9 +48,17 @@ export function Login() {
           </div>
 
           {/* YARDFLOW brand logo */}
-          <h1 className="text-3xl font-black tracking-tight text-white mb-2">
-            YARDFLOW<span className="text-blue-500 font-normal">™</span>
-          </h1>
+          <div className="flex items-center gap-3 mb-2">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src="/yardflow-logo.png"
+              alt="YARDFLOW logo"
+              className="h-11 w-11 shrink-0 object-contain"
+            />
+            <h1 className="text-3xl font-black tracking-tight text-white">
+              YARDFLOW<span className="text-blue-500 font-normal">™</span>
+            </h1>
+          </div>
           <p className="text-xs text-[#6e85b2] mb-12">
             Terminal Logistics & Intelligent Routing System
           </p>

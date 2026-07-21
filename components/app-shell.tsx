@@ -336,9 +336,17 @@ export function AppShell({
       {/* Desktop Sidebar (hidden on mobile/tablet) */}
       <aside className="hidden lg:flex sticky top-0 h-screen w-[260px] shrink-0 flex-col border-r border-slate-200 bg-white">
         <div className="px-6 pb-5 pt-6">
-          <h1 className="text-[19px] font-extrabold tracking-tight">
-            YARDFLOW<span className="text-blue-600">™</span>
-          </h1>
+          <div className="flex items-center gap-2.5">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src="/yardflow-logo.png"
+              alt="YARDFLOW logo"
+              className="h-8 w-8 shrink-0 object-contain"
+            />
+            <h1 className="text-[19px] font-extrabold tracking-tight">
+              YARDFLOW<span className="text-blue-600">™</span>
+            </h1>
+          </div>
           <p className="mt-0.5 text-[11px] text-slate-400">
             Yard Management System
           </p>
@@ -412,9 +420,17 @@ export function AppShell({
             </button>
 
             <div className="pb-5 pt-1">
-              <h1 className="text-[19px] font-extrabold tracking-tight">
-                YARDFLOW<span className="text-blue-600">™</span>
-              </h1>
+              <div className="flex items-center gap-2.5">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src="/yardflow-logo.png"
+                  alt="YARDFLOW logo"
+                  className="h-8 w-8 shrink-0 object-contain"
+                />
+                <h1 className="text-[19px] font-extrabold tracking-tight">
+                  YARDFLOW<span className="text-blue-600">™</span>
+                </h1>
+              </div>
               <p className="mt-0.5 text-[11px] text-slate-400">
                 Yard Management System
               </p>
