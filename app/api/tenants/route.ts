@@ -1,8 +1,14 @@
 import { NextResponse } from "next/server";
 import { createTenant, extendTenantLicense, deleteTenant, updateTenantConfig, setTenantLicense } from "@/lib/db";
+import { requireSuperadmin } from "@/lib/api-auth";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
   try {
+    const s = requireSuperadmin(req);
+    if (s instanceof NextResponse) return s;
     const body = await req.json();
     const { action, name, domain, plan, seats, id, years, modules, adminUsername, adminPassword, expiryDate, status } = body;
 

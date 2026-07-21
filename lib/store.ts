@@ -36,6 +36,11 @@ interface Store {
   login: (username: string, passcode: string) => Promise<boolean>;
   logout: () => void;
 
+  // superadmin-only: which tenant's dashboard we're currently viewing (read-only).
+  // null = view our own/default scope. Drives a ?tenantId= param on /api/state.
+  viewTenantId: string | null;
+  setViewTenant: (id: string | null) => void;
+
   hydrate: () => Promise<void>;
   setSearch: (s: string) => void;
   setScanned: (id: string | null) => void;
@@ -81,37 +86,36 @@ interface Store {
   }) => Promise<boolean>;
   deleteOperator: (id: string) => Promise<boolean>;
   updatePermissions: (role: string, allowedPaths: string[]) => Promise<boolean>;
-  changePassword: (username: string, passcode: string) => Promise<boolean>;
+  changePassword: (username: string, passcode: string, currentPasscode?: string) => Promise<boolean>;
 
   // real-time polling
   startPolling: () => void;
   stopPolling: () => void;
 }
 
-// The logged-in user's workspace, read from the persisted session. Sent on every
-// request as x-tenant-id so the server scopes reads/writes to this company's data.
-// Absent for the superadmin and the hardcoded demo logins → shared default workspace.
-export function tenantHeaders(): Record<string, string> {
-  if (typeof window === "undefined") return {};
-  try {
-    const raw = localStorage.getItem("yardflow_user");
-    if (!raw) return {};
-    const tid = JSON.parse(raw)?.tenantId;
-    return tid ? { "x-tenant-id": String(tid) } : {};
-  } catch {
-    return {};
-  }
-}
-
+// Auth + tenant scope now live in a signed httpOnly session cookie set by the
+// server at login. The cookie travels automatically with same-origin fetches, so
+// the client no longer sends (or is trusted for) an x-tenant-id header.
 async function postJson(url: string, body?: unknown) {
   const res = await fetch(url, {
     method: "POST",
-    headers: { "Content-Type": "application/json", ...tenantHeaders() },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body ?? {}),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data?.error ?? "Request failed");
   return data;
+}
+
+// Build the /api/state URL, honoring a superadmin's "view tenant" selection. The
+// ?tenantId= override is only ever attached for a superadmin session — the server
+// ignores it for anyone else, and we mirror that guard here so a stale selection
+// can't leak into a normal user's request.
+function stateUrl(viewTenantId: string | null, user: OperatorUser | null): string {
+  if (viewTenantId && user?.role === "superadmin") {
+    return `/api/state?tenantId=${encodeURIComponent(viewTenantId)}`;
+  }
+  return "/api/state";
 }
 
 // Module-level interval so it survives Zustand re-renders
@@ -138,163 +142,79 @@ export const useStore = create<Store>((set, get) => ({
   exitSelectedId: null,
 
   currentUser: null,
+  viewTenantId: null,
 
   login: async (username, passcode) => {
-    const cleanUser = username.trim().toLowerCase();
-
-    // 1. Superadmin check (SaaS Platform Owner)
-    if (cleanUser === "superadmin" && passcode === "super123") {
-      const superUser: OperatorUser = {
-        username: "superadmin",
-        passcode: "super123",
-        role: "superadmin",
-        name: "Platform Owner",
-        allowedPaths: ["/", "/entry", "/billing", "/loading", "/exit", "/reports", "/admin", "/superadmin"],
-      };
-      set({ currentUser: superUser });
+    // Credentials are verified on the SERVER. On success the server sets a signed
+    // session cookie and returns the safe identity (no passcode). We keep a copy
+    // in localStorage only for instant nav rendering — the cookie is the real auth.
+    try {
+      const res = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username, passcode }),
+      });
+      if (!res.ok) return false;
+      const { user } = (await res.json()) as { user: OperatorUser };
+      set({ currentUser: user });
       if (typeof window !== "undefined") {
-        localStorage.setItem("yardflow_user", JSON.stringify(superUser));
+        localStorage.setItem("yardflow_user", JSON.stringify(user));
       }
-      return true;
-    }
-
-    // 1b. Hardcoded Developer Quick Logins (Entry and Billing)
-    if (cleanUser === "entry" && passcode === "entry123") {
-      const entryUser: OperatorUser = {
-        username: "entry",
-        passcode: "entry123",
-        role: "Gate Operator",
-        name: "Gate Operator",
-        allowedPaths: ["/", "/entry"],
-      };
-      set({ currentUser: entryUser });
-      if (typeof window !== "undefined") {
-        localStorage.setItem("yardflow_user", JSON.stringify(entryUser));
-      }
-      return true;
-    }
-
-    if (cleanUser === "billing" && passcode === "billing123") {
-      const billingUser: OperatorUser = {
-        username: "billing",
-        passcode: "billing123",
-        role: "Billing Agent",
-        name: "Billing Operator",
-        allowedPaths: ["/", "/billing"],
-      };
-      set({ currentUser: billingUser });
-      if (typeof window !== "undefined") {
-        localStorage.setItem("yardflow_user", JSON.stringify(billingUser));
-      }
-      return true;
-    }
-
-    // 2. Scan dynamic database operator accounts
-    const dynamicOp = get().operators.find(
-      (o) => o.username === cleanUser && o.passcode === passcode,
-    );
-    if (dynamicOp) {
-      const permGrid = get().permissions.find((p) => p.role === dynamicOp.role);
-
-      let allowedPaths = ["/"];
-      if (permGrid) {
-        allowedPaths = permGrid.allowedPaths;
-      } else {
-        // Fallback default permissions
-        if (dynamicOp.role === "Administrator" || dynamicOp.role === "Admin") {
-          allowedPaths = ["/", "/entry", "/billing", "/loading", "/exit", "/reports", "/admin"];
-        } else if (dynamicOp.role === "Gate Operator") {
-          allowedPaths = ["/", "/entry"];
-        } else if (dynamicOp.role === "Loading Operator") {
-          allowedPaths = ["/", "/loading"];
-        } else if (dynamicOp.role === "Billing Agent") {
-          allowedPaths = ["/", "/billing"];
-        } else if (dynamicOp.role === "Security Guard") {
-          allowedPaths = ["/", "/exit"];
-        }
-      }
-
-      // Strip superadmin access for dynamic operators
-      allowedPaths = allowedPaths.filter((p) => p !== "/superadmin");
-
-      const mappedUser: OperatorUser = {
-        username: dynamicOp.username,
-        passcode: dynamicOp.passcode,
-        role: dynamicOp.role,
-        name: dynamicOp.name,
-        allowedPaths,
-        isFirstLogin: dynamicOp.isFirstLogin,
-        tenantId: dynamicOp.tenantId,
-      };
-
-      set({ currentUser: mappedUser });
-      if (typeof window !== "undefined") {
-        localStorage.setItem("yardflow_user", JSON.stringify(mappedUser));
-      }
-      // Re-fetch state under the new workspace header so a tenant admin sees
-      // their own company's data immediately, not after the next poll tick.
+      // Load this workspace's data immediately (cookie now scopes the request).
       void get().hydrate();
       return true;
+    } catch {
+      return false;
     }
+  },
 
-    return false;
+  // Superadmin selects a client company to view (read-only), or null to return to
+  // their own scope. Re-hydrates so the store repopulates with that tenant's data.
+  setViewTenant: (id) => {
+    set({ viewTenantId: id });
+    void get().hydrate();
   },
 
   logout: () => {
-    set({ currentUser: null });
+    set({ currentUser: null, viewTenantId: null });
     if (typeof window !== "undefined") {
       localStorage.removeItem("yardflow_user");
     }
+    // Clear the server session cookie; ignore failures (best effort).
+    void fetch("/api/auth/logout", { method: "POST" }).catch(() => {});
   },
 
   hydrate: async () => {
-    let storedUser: string | null = null;
-    if (typeof window !== "undefined") {
-      storedUser = localStorage.getItem("yardflow_user");
+    // Ask the server who we are (verified session cookie). This replaces the old
+    // client-side identity rebuild that matched a persisted passcode.
+    try {
+      const meRes = await fetch("/api/auth/me", { cache: "no-store" });
+      if (meRes.ok) {
+        const { user } = (await meRes.json()) as { user: OperatorUser };
+        set({ currentUser: user });
+        if (typeof window !== "undefined") {
+          localStorage.setItem("yardflow_user", JSON.stringify(user));
+        }
+      } else {
+        set({ currentUser: null });
+        if (typeof window !== "undefined") {
+          localStorage.removeItem("yardflow_user");
+        }
+      }
+    } catch {
+      // Network hiccup — keep whatever nav we already have.
     }
 
     try {
-      const res = await fetch("/api/state", { cache: "no-store", headers: tenantHeaders() });
-      const state: YardState = await res.json();
-      set({ ...state, ready: true });
-
-      if (storedUser) {
-        try {
-          const parsed = JSON.parse(storedUser) as OperatorUser;
-          if (parsed.username === "superadmin" && parsed.passcode === "super123") {
-            // Rebuild the superadmin identity from canonical values rather than
-            // trusting the persisted object — a session saved before a path
-            // (e.g. /reports) was added would otherwise keep a stale nav.
-            set({
-              currentUser: {
-                ...parsed,
-                role: "superadmin",
-                name: "Platform Owner",
-                allowedPaths: ["/", "/entry", "/billing", "/loading", "/exit", "/reports", "/admin", "/superadmin"],
-              },
-            });
-          } else {
-            const freshOp = state.operators.find(
-              (o) => o.username === parsed.username && o.passcode === parsed.passcode,
-            );
-            if (freshOp) {
-              const freshPerm = state.permissions.find((p) => p.role === freshOp.role);
-              const allowedPaths = (freshPerm ? freshPerm.allowedPaths : parsed.allowedPaths).filter((p) => p !== "/superadmin");
-              set({
-                currentUser: {
-                  ...parsed,
-                  allowedPaths,
-                  tenantId: freshOp.tenantId,
-                },
-              });
-            } else {
-              localStorage.removeItem("yardflow_user");
-              set({ currentUser: null });
-            }
-          }
-        } catch {
-          localStorage.removeItem("yardflow_user");
-        }
+      // Cookie scopes this to our workspace; 401 (no session) just yields no data.
+      // A superadmin viewing a client passes ?tenantId= (see stateUrl).
+      const { viewTenantId, currentUser } = get();
+      const res = await fetch(stateUrl(viewTenantId, currentUser), { cache: "no-store" });
+      if (res.ok) {
+        const state: YardState = await res.json();
+        set({ ...state, ready: true });
+      } else {
+        set({ ready: true });
       }
     } catch {
       toast.error("Could not load yard data.");
@@ -471,12 +391,13 @@ export const useStore = create<Store>((set, get) => ({
     }
   },
 
-  changePassword: async (username, passcode) => {
+  changePassword: async (username, passcode, currentPasscode) => {
     try {
       const state = await postJson("/api/operators", {
         action: "change-password",
         username,
         passcode,
+        currentPasscode,
       });
       set({ ...state });
       
@@ -505,11 +426,23 @@ export const useStore = create<Store>((set, get) => ({
       if (_polling) return;
       _polling = true;
       try {
-        const res = await fetch("/api/state", { cache: "no-store", headers: tenantHeaders() });
+        // Cookie carries auth + tenant scope automatically. A superadmin viewing a
+        // client keeps that tenant's data refreshing via the ?tenantId= param.
+        const { viewTenantId, currentUser: pollUser } = get();
+        const res = await fetch(stateUrl(viewTenantId, pollUser), { cache: "no-store" });
+        if (res.status === 401) {
+          // Session gone/expired server-side — drop the client session too.
+          set({ currentUser: null });
+          if (typeof window !== "undefined") {
+            localStorage.removeItem("yardflow_user");
+          }
+          return;
+        }
         if (res.ok) {
           const state: YardState = await res.json();
-          
-          // Capture current session changes if permission maps change
+
+          // Keep nav fresh if the admin edited this role's permissions. Matched
+          // by username only (passcodes no longer travel to the client).
           const currentSession = get().currentUser;
           let nextSession = currentSession;
           if (currentSession && currentSession.username !== "superadmin") {
@@ -524,13 +457,9 @@ export const useStore = create<Store>((set, get) => ({
                 allowedPaths,
                 tenantId: freshOp.tenantId,
               };
-            } else {
-              // Session expired
-              nextSession = null;
-              if (typeof window !== "undefined") {
-                localStorage.removeItem("yardflow_user");
-              }
             }
+            // If not found in this workspace snapshot, leave the session as-is;
+            // /api/state 401 (above) is the authority on expiry, not this list.
           }
 
           set({

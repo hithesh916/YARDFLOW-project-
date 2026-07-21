@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 
 function useSessionStorage<T>(key: string, initialValue: T) {
   const [state, setState] = useState<T>(() => {
@@ -48,6 +49,7 @@ import {
   Settings,
   CheckCircle2,
   Ban,
+  LayoutDashboard,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Panel } from "@/components/panel";
@@ -73,6 +75,8 @@ export default function SuperAdminHub() {
   const deleteTenant = useStore((s) => s.deleteTenant);
   const updateTenantConfig = useStore((s) => s.updateTenantConfig);
   const setTenantLicense = useStore((s) => s.setTenantLicense);
+  const setViewTenant = useStore((s) => s.setViewTenant);
+  const router = useRouter();
 
   const [activeTab, setActiveTab] = useSessionStorage<"tenants" | "registry" | "backend">("superadmin_activeTab", "tenants");
   const [search, setSearch] = useSessionStorage("superadmin_search", "");
@@ -94,6 +98,10 @@ export default function SuperAdminHub() {
   const [editTenantId, setEditTenantId] = useSessionStorage<string | null>("superadmin_editTenantId", null);
   const [editSeats, setEditSeats] = useSessionStorage("superadmin_editSeats", 5);
   const [editModules, setEditModules] = useSessionStorage<string[]>("superadmin_editModules", []);
+
+  // Delete confirmation modal state
+  const [deleteTenantId, setDeleteTenantId] = useState<string | null>(null);
+  const deleteTenant_ = deleteTenantId ? tenants.find((t) => t.id === deleteTenantId) : null;
 
   // License management modal state
   const [manageTenantId, setManageTenantId] = useState<string | null>(null);
@@ -224,7 +232,10 @@ export default function SuperAdminHub() {
   }
 
   async function handleDelete(id: string) {
+    setBusy(true);
     const ok = await deleteTenant(id);
+    setBusy(false);
+    setDeleteTenantId(null);
     if (ok) {
       toast.success("Tenant client removed successfully.");
     }
@@ -465,6 +476,40 @@ export default function SuperAdminHub() {
                 </button>
               </DialogFooter>
             </form>
+          </DialogContent>
+        </Dialog>
+
+        {/* Delete Tenant Confirmation Modal */}
+        <Dialog open={!!deleteTenantId} onOpenChange={(o) => !o && setDeleteTenantId(null)}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Delete this tenant?</DialogTitle>
+              <DialogDescription>
+                {deleteTenant_
+                  ? `"${deleteTenant_.name}" will be permanently removed. This cannot be undone.`
+                  : "This client will be permanently removed. This cannot be undone."}
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter className="mt-4">
+              <DialogClose
+                render={
+                  <button
+                    type="button"
+                    className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50"
+                  >
+                    Cancel
+                  </button>
+                }
+              />
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => deleteTenantId && handleDelete(deleteTenantId)}
+                className="rounded-lg bg-rose-600 px-4 py-2 text-sm font-bold text-white hover:bg-rose-700 disabled:opacity-50"
+              >
+                {busy ? "Deleting..." : "Delete Tenant"}
+              </button>
+            </DialogFooter>
           </DialogContent>
         </Dialog>
 
@@ -788,6 +833,17 @@ export default function SuperAdminHub() {
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
+                              setViewTenant(t.id);
+                              router.push("/");
+                            }}
+                            className="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 rounded-lg border-2 border-blue-500 bg-blue-500 px-3 py-2 text-xs font-extrabold text-white hover:bg-blue-600 transition-colors"
+                            title={`Open ${t.name}'s dashboard (read-only)`}
+                          >
+                            <LayoutDashboard size={14} /> View Dashboard
+                          </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
                               setEditTenantId(t.id);
                               setEditSeats(t.seats);
                               setEditModules(t.modules || []);
@@ -808,7 +864,7 @@ export default function SuperAdminHub() {
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
-                              handleDelete(t.id);
+                              setDeleteTenantId(t.id);
                             }}
                             className="rounded-lg border-2 border-rose-100 bg-white p-2 text-rose-500 hover:bg-rose-50 transition-colors"
                             title="Delete Tenant"

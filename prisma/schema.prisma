@@ -55,9 +55,9 @@ model Tenant {
 }
 
 // Login account (superadmin, admins, gate/billing/loading/exit operators).
-// `passcode` is still stored in the clear in this phase to keep the existing
-// client-side login working; it becomes a bcrypt hash when server-side auth
-// lands (Phase 3).
+// `passcode` stores a scrypt hash (format `scrypt$<salt>$<hash>`, see lib/auth.ts).
+// Legacy plaintext rows are upgraded to a hash on the owner's next successful
+// login (see authenticate() in lib/db.ts). Credentials are verified server-side.
 model Operator {
   id           String  @id
   name         String

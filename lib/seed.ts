@@ -31,6 +31,13 @@ export function buildSeed(): Ledger {
     tenants: [],
     operators: [
       {
+        id: "op-super",
+        name: "Platform Owner",
+        username: "superadmin",
+        passcode: "super123",
+        role: "superadmin",
+      },
+      {
         id: "op-1",
         name: "Admin",
         username: "admin",

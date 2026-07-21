@@ -9,6 +9,7 @@ import {
   updateEntryForBillingTicket,
 } from "@/lib/db";
 import type { YardState } from "@/lib/types";
+import { requireAuth } from "@/lib/api-auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,8 +19,10 @@ export async function POST(
   req: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
+  const s = requireAuth(req);
+  if (s instanceof NextResponse) return s;
   const { id } = await params;
-  const tenantId = req.headers.get("x-tenant-id") ?? undefined;
+  const tenantId = s.tenantId ?? undefined;
   const body = await req.json().catch(() => ({}));
   const action = body.action as string;
 

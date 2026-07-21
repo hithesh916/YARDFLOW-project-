@@ -167,10 +167,18 @@ export function AppShell({
   
   const currentUser = useStore((s) => s.currentUser);
   const logout = useStore((s) => s.logout);
+  const viewTenantId = useStore((s) => s.viewTenantId);
+  const setViewTenant = useStore((s) => s.setViewTenant);
 
   const currentTenant = currentUser?.tenantId
     ? tenants.find(t => t.id === currentUser.tenantId)
     : null;
+
+  // Superadmin "view a client's dashboard" (read-only) session, if any.
+  const viewingTenant =
+    viewTenantId && currentUser?.role === "superadmin"
+      ? tenants.find((t) => t.id === viewTenantId) ?? null
+      : null;
 
   // License gate: a tenant whose subscription is suspended/expired (by status or by
   // the expiry date having passed) is locked out of the whole portal — their data is
@@ -211,6 +219,11 @@ export function AppShell({
   // Automatic routing redirect to default allowed page if they hit root or an unauthorized page
   useEffect(() => {
     if (ready && currentUser) {
+      // While a superadmin is viewing a client's dashboard (read-only), "/" IS the
+      // intended destination — skip the auto-redirect that would otherwise bounce
+      // them back to /superadmin.
+      if (viewTenantId && currentUser.role === "superadmin") return;
+
       // Direct redirect on first load/login if hitting root /
       if (!hasRedirected && pathname === "/") {
         const primaryPath = ROLE_PRIMARY_PATHS[currentUser.role];
@@ -230,7 +243,7 @@ export function AppShell({
         }
       }
     }
-  }, [ready, currentUser, pathname, router, hasRedirected]);
+  }, [ready, currentUser, pathname, router, hasRedirected, viewTenantId]);
 
   const settings = useStore((s) => s.settings);
   const terminalName = settings?.terminalName || "";
@@ -602,6 +615,30 @@ export function AppShell({
         </header>
 
         <main className="flex flex-col gap-6 p-8">
+          {/* Superadmin is viewing a client's dashboard read-only. Banner persists
+              across pages until they exit the view. */}
+          {viewingTenant && (
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-[13px] text-blue-900 shadow-sm print:hidden">
+              <div className="flex items-center gap-2.5">
+                <ShieldAlert size={18} className="shrink-0 text-blue-700" />
+                <span>
+                  Viewing <strong className="font-extrabold">{viewingTenant.name}</strong>
+                  <span className="ml-1.5 rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-black uppercase tracking-wider text-blue-700">
+                    Read only
+                  </span>
+                </span>
+              </div>
+              <button
+                onClick={() => {
+                  setViewTenant(null);
+                  router.push("/superadmin");
+                }}
+                className="flex items-center gap-1.5 rounded-lg border border-blue-300 bg-white px-3 py-1.5 text-xs font-bold text-blue-700 transition-colors hover:bg-blue-100"
+              >
+                <X size={14} /> Exit view
+              </button>
+            </div>
+          )}
           {!ready ? (
             <div className="flex min-h-[60vh] items-center justify-center text-slate-400">
               <Loader2 className="mr-2 h-5 w-5 animate-spin" /> Loading yard
@@ -667,16 +704,13 @@ function ChangePasswordDialog({ onClose }: { onClose: () => void }) {
       toast.error("Please fill in all passcode fields.");
       return;
     }
-    // Superadmin is a hardcoded login (no operator row), so its passcode
-    // cannot be changed here — guide them out instead of silently failing.
+    // Superadmin's passcode is fixed in this version and not changeable here.
     if (isSuperadmin) {
       toast.error("The Super-Admin passcode is fixed in this version and can't be changed here.");
       return;
     }
-    if (current !== currentUser?.passcode) {
-      toast.error("Current passcode is incorrect.");
-      return;
-    }
+    // The current passcode is verified SERVER-SIDE now (the client no longer
+    // holds it), so we just forward it below.
     if (passcode !== confirmPasscode) {
       toast.error("New passcode and confirm passcode do not match.");
       return;
@@ -691,7 +725,7 @@ function ChangePasswordDialog({ onClose }: { onClose: () => void }) {
     }
 
     setBusy(true);
-    const ok = await changePassword(currentUser!.username, passcode);
+    const ok = await changePassword(currentUser!.username, passcode, current);
     setBusy(false);
     if (ok) {
       toast.success("Passcode updated successfully.");

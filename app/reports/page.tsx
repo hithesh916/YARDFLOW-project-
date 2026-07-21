@@ -2,37 +2,15 @@
 
 import { useState } from "react";
 import {
-  Ban,
-  CheckCircle2,
   Clock,
   DoorOpen,
   LogIn,
-  ReceiptText,
-  RotateCcw,
   ShieldAlert,
-  Truck,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Panel } from "@/components/panel";
-import { Pill, type Tone } from "@/components/pill";
 import { useStore } from "@/lib/store";
-import { timeAgo } from "@/lib/format";
-import { STATUS_LABELS, type ActivityAction, type TicketStatus } from "@/lib/types";
-
-const ACTION_META: Record<
-  ActivityAction,
-  { label: string; tone: Tone; icon: React.ComponentType<{ size?: number }> }
-> = {
-  entry: { label: "Gate entry", tone: "blue", icon: LogIn },
-  loading_complete: { label: "Loading completed", tone: "green", icon: CheckCircle2 },
-  loading_skip: { label: "Loading skipped", tone: "amber", icon: Ban },
-  billing_complete: { label: "Billing completed", tone: "green", icon: ReceiptText },
-  billing_skip: { label: "Billing skipped", tone: "amber", icon: Ban },
-  exit: { label: "Exited yard", tone: "green", icon: DoorOpen },
-  hold: { label: "Vehicle held", tone: "red", icon: ShieldAlert },
-  alert_ack: { label: "Alert acknowledged", tone: "slate", icon: ShieldAlert },
-  reset: { label: "Demo data reset", tone: "slate", icon: RotateCcw },
-};
+import { STATUS_LABELS, type TicketStatus } from "@/lib/types";
 
 const STATUS_ORDER: TicketStatus[] = [
   "awaiting_billing",
@@ -86,7 +64,6 @@ function sameDay(d1: string | null, d2: Date): boolean {
 
 export default function ReportsPage() {
   const tickets = useStore((s) => s.tickets);
-  const activity = useStore((s) => s.activity);
   const [dateRange, setDateRange] = useState<"today" | "week" | "all">("today");
 
   const now = new Date();
@@ -97,18 +74,6 @@ export default function ReportsPage() {
     }
     if (dateRange === "week") {
       const d = new Date(t.entryTime);
-      const diff = now.getTime() - d.getTime();
-      return diff <= 7 * 24 * 60 * 60 * 1000;
-    }
-    return true; // "all"
-  });
-
-  const filteredActivity = activity.filter((a) => {
-    if (dateRange === "today") {
-      return sameDay(a.at, now);
-    }
-    if (dateRange === "week") {
-      const d = new Date(a.at);
       const diff = now.getTime() - d.getTime();
       return diff <= 7 * 24 * 60 * 60 * 1000;
     }
@@ -323,76 +288,6 @@ export default function ReportsPage() {
           </div>
         </Panel>
       </div>
-
-      {/* Activity feed */}
-      <Panel className="p-6">
-        <div className="mb-4 flex items-center justify-between">
-          <div>
-            <h3 className="text-[15px] font-extrabold text-slate-800">
-              Transaction Log
-            </h3>
-            <p className="text-xs text-slate-400 mt-1">
-              Latest yard movements and audit trails. Export is ready for reconciliation.
-            </p>
-          </div>
-          <div className="flex items-center gap-3">
-            <Pill tone="slate">{filteredActivity.length} events</Pill>
-            <button
-              onClick={exportVisits}
-              className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-xs font-bold text-slate-700 transition-colors hover:bg-slate-50"
-            >
-              Export CSV
-            </button>
-          </div>
-        </div>
-        {filteredActivity.length === 0 ? (
-          <p className="text-sm text-slate-400">No activity recorded for this period.</p>
-        ) : (
-          <div className="flex flex-col">
-            {filteredActivity.slice(0, 40).map((a) => {
-              const meta = ACTION_META[a.action];
-              const Icon = meta.icon;
-              return (
-                <div
-                  key={a.id}
-                  className="flex items-center justify-between border-b border-slate-100 py-3 last:border-b-0"
-                >
-                  <div className="flex items-center gap-3">
-                    <Pill tone={meta.tone} className="h-8 w-8 justify-center p-0">
-                      <Icon size={14} />
-                    </Pill>
-                    <div>
-                      <p className="text-sm font-bold text-slate-800">
-                        {meta.label}
-                        {a.vehicle ? (
-                          <span className="font-semibold text-slate-500">
-                            {" "}
-                            · {a.vehicle}
-                          </span>
-                        ) : null}
-                      </p>
-                      <p className="mt-px text-xs text-slate-400">
-                        {a.serial
-                          ? a.action === "entry"
-                            ? `SN G-${String(a.serial).padStart(3, "0")}`
-                            : a.action.startsWith("billing")
-                              ? `SN B-${String(a.serial).padStart(3, "0")}`
-                              : a.action.startsWith("loading")
-                                ? `SN L-${String(a.serial).padStart(3, "0")}`
-                                : `SN #${a.serial}`
-                          : ""}
-                        {a.serial && a.detail ? " · " : ""}
-                        {a.detail ?? ""}
-                      </p>
-                    </div>
-                  </div>
-                  <span className="text-xs text-slate-400">{timeAgo(a.at)}</span>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </Panel>
     </>
   );
 }

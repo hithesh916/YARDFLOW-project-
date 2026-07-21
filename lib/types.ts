@@ -78,6 +78,20 @@ export interface TenantClient {
   modules: string[];
 }
 
+/**
+ * A tenant's directory metadata merged with its registered company profile
+ * (the per-tenant Settings fields). Superadmin-only — used by the Admin Console
+ * to show every onboarded client's company information in one place.
+ */
+export interface TenantProfile extends TenantClient {
+  companyName?: string;
+  companyAddress?: string;
+  companyContact?: string;
+  companyEmail?: string;
+  companyGst?: string;
+  logoUrl?: string;
+}
+
 export interface OperatorAccount {
   id: string;
   name: string;

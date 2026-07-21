@@ -1,9 +1,12 @@
 import { NextResponse } from "next/server";
 import { updateRolePermissions } from "@/lib/db";
+import { requireAdmin } from "@/lib/api-auth";
 
 export async function POST(req: Request) {
   try {
-    const callerTenant = req.headers.get("x-tenant-id") ?? undefined;
+    const s = requireAdmin(req);
+    if (s instanceof NextResponse) return s;
+    const callerTenant = s.tenantId ?? undefined;
     const body = await req.json();
     const { role, allowedPaths } = body;
 

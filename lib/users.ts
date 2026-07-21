@@ -1,6 +1,8 @@
 export interface OperatorUser {
   username: string;
-  passcode: string;
+  // Optional: server-side auth (Phase 3) no longer ships the passcode to the
+  // client. The persisted session identity carries no secret.
+  passcode?: string;
   role: string;
   name: string;
   allowedPaths: string[];

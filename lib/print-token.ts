@@ -4,6 +4,81 @@ import { fmtDate, fmtTime } from "./format";
 import { useStore } from "./store";
 
 /**
+ * Shared base CSS for every 80 mm thermal receipt slip.
+ *
+ * Key guarantees:
+ *   • @page  – paper width locked to exactly 80 mm, height auto, all margins 0.
+ *   • @media print – reinforces margin:0 and disables any browser scale/zoom.
+ *   • html/body – rendered at exactly 80 mm; overflow clipped so nothing bleeds.
+ *   • transform:scale(1) / zoom:1 – forces 100 % actual-size printing.
+ *   • -webkit-text-size-adjust:none – suppresses automatic font inflation.
+ *   • print-color-adjust:exact – preserves background colours on thermal output.
+ */
+const THERMAL_CSS = `
+  /* ── reset ──────────────────────────────────────────────────────── */
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  /* ── page geometry ───────────────────────────────────────────────── */
+  @page {
+    size: 80mm auto;          /* width = 80 mm, height follows content  */
+    margin: 0mm;              /* zero printer margins                   */
+  }
+
+  /* ── enforce 100 % scale at print time ──────────────────────────── */
+  @media print {
+    @page { size: 80mm auto; margin: 0mm; }
+    html, body {
+      width: 80mm !important;
+      max-width: 80mm !important;
+      margin: 0 !important;
+      padding: 0 !important;
+      /* Prevent the browser from rescaling the page */
+      transform: scale(1) !important;
+      zoom: 1 !important;
+    }
+  }
+
+  /* ── screen / iframe base ────────────────────────────────────────── */
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: #fff;
+    /* Lock render width so the iframe never widens */
+    width: 80mm;
+    max-width: 80mm;
+    min-width: 80mm;
+    overflow-x: hidden;
+    overflow-y: visible;
+    /* Colour fidelity on thermal paper */
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+    /* Prevent browser font inflation */
+    -webkit-text-size-adjust: none;
+    text-size-adjust: none;
+  }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    color: #000;
+    font-size: 13px;
+    line-height: 1.35;
+  }
+
+  /* ── slip wrapper ────────────────────────────────────────────────── */
+  .ticket {
+    width: 80mm;
+    max-width: 80mm;
+    box-sizing: border-box;
+    margin: 0;
+    padding: 10px 4mm 32px;   /* 4 mm side padding inside the 80 mm    */
+    border: none;
+    /* Never split a single slip across two sheets */
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+`;
+
+/**
  * Prints a single gate-entry token slip optimized for 80mm (3-inch) thermal receipt printers.
  */
 export function writePrintDocument(html: string, targetWindow?: Window): void {
@@ -55,27 +130,10 @@ export async function printToken(ticket: Ticket, targetWindow?: Window): Promise
 <html>
 <head>
 <meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
 <title>YARDFLOW Token #${ticket.serial}</title>
 <style>
-  * { box-sizing: border-box; }
-  html, body { margin: 0; padding: 0; background: #fff; }
-  body {
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-    color: #000;
-    -webkit-print-color-adjust: exact;
-    print-color-adjust: exact;
-    font-size: 13px;
-    line-height: 1.35;
-  }
-  @page { size: 80mm auto; margin: 0mm; }
-  .ticket {
-    width: 72mm;
-    margin: 0 auto;
-    padding: 12px 8px 36px;
-    border: none;
-    page-break-inside: avoid;
-    break-inside: avoid;
-  }
+${THERMAL_CSS}
   .brand {
     display: flex;
     flex-direction: column;
@@ -231,27 +289,10 @@ export async function printBillingToken(ticket: Ticket, targetWindow?: Window): 
 <html>
 <head>
 <meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
 <title>YARDFLOW Billing Slip #${ticket.serial}</title>
 <style>
-  * { box-sizing: border-box; }
-  html, body { margin: 0; padding: 0; background: #fff; }
-  body {
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-    color: #000;
-    -webkit-print-color-adjust: exact;
-    print-color-adjust: exact;
-    font-size: 13px;
-    line-height: 1.35;
-  }
-  @page { size: 80mm auto; margin: 0mm; }
-  .ticket {
-    width: 72mm;
-    margin: 0 auto;
-    padding: 12px 8px 36px;
-    border: none;
-    page-break-inside: avoid;
-    break-inside: avoid;
-  }
+${THERMAL_CSS}
   .brand {
     display: flex;
     flex-direction: column;
@@ -433,27 +474,10 @@ export async function printLoadingToken(ticket: Ticket, targetWindow?: Window): 
 <html>
 <head>
 <meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
 <title>YARDFLOW Loading Pass #${ticket.serial}</title>
 <style>
-  * { box-sizing: border-box; }
-  html, body { margin: 0; padding: 0; background: #fff; }
-  body {
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-    color: #000;
-    -webkit-print-color-adjust: exact;
-    print-color-adjust: exact;
-    font-size: 13px;
-    line-height: 1.35;
-  }
-  @page { size: 80mm auto; margin: 0mm; }
-  .ticket {
-    width: 72mm;
-    margin: 0 auto;
-    padding: 12px 8px 36px;
-    border: none;
-    page-break-inside: avoid;
-    break-inside: avoid;
-  }
+${THERMAL_CSS}
   .brand {
     display: flex;
     flex-direction: column;
@@ -667,27 +691,10 @@ export async function printLoadingTokens(tickets: Ticket[], targetWindow?: Windo
 <html>
 <head>
 <meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
 <title>YARDFLOW Loading Passes</title>
 <style>
-  * { box-sizing: border-box; }
-  html, body { margin: 0; padding: 0; background: #fff; }
-  body {
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-    color: #000;
-    -webkit-print-color-adjust: exact;
-    print-color-adjust: exact;
-    font-size: 13px;
-    line-height: 1.35;
-  }
-  @page { size: 80mm auto; margin: 0mm; }
-  .ticket {
-    width: 72mm;
-    margin: 0 auto;
-    padding: 12px 8px 36px;
-    border: none;
-    page-break-inside: avoid;
-    break-inside: avoid;
-  }
+${THERMAL_CSS}
   .brand { display: flex; flex-direction: column; align-items: center; text-align: center; margin-bottom: 8px; }
   .name { font-weight: 850; font-size: 17px; margin: 0; letter-spacing: 0.04em; text-transform: uppercase; }
   .terminal-lbl { font-size: 9px; font-weight: 700; color: #000; text-transform: uppercase; margin-top: 2px; }
@@ -773,12 +780,10 @@ export async function printCombinedLoadingToken(tickets: Ticket[], targetWindow?
 <html>
 <head>
 <meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
 <title>YARDFLOW Combined Loading Pass</title>
 <style>
-  *{box-sizing:border-box}
-  html,body{margin:0;padding:0;background:#fff;color:#000;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial}
-  @page{size:80mm auto;margin:0}
-  .ticket{width:72mm;margin:0 auto;padding:12px 8px 24px}
+${THERMAL_CSS}
   .brand{text-align:center;margin-bottom:6px}
   .name{font-weight:850;font-size:16px;margin:0}
   .boe{font-size:11px;color:#333;margin-top:4px}

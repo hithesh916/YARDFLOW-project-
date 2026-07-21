@@ -40,12 +40,15 @@ import {
   MapPin,
   Phone,
   Receipt,
+  Pencil,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Panel } from "@/components/panel";
 import { Pill } from "@/components/pill";
 import { useStore } from "@/lib/store";
+import { cn } from "@/lib/utils";
 import { durationBetween } from "@/lib/format";
+import type { TenantProfile } from "@/lib/types";
 import {
   Dialog,
   DialogClose,
@@ -64,6 +67,35 @@ const ROLES = [
   "Billing Agent",
   "Security Guard",
 ];
+
+function ProfileRow({
+  icon,
+  label,
+  value,
+  mono = false,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value?: string | null;
+  mono?: boolean;
+}) {
+  return (
+    <div className="flex items-start gap-3 px-6 py-4">
+      <span className="mt-0.5 shrink-0 text-slate-400">{icon}</span>
+      <div className="min-w-0">
+        <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">{label}</div>
+        <div
+          className={cn(
+            "mt-0.5 whitespace-pre-line text-sm font-semibold text-slate-800",
+            mono && "font-mono",
+          )}
+        >
+          {value?.trim() ? value : <span className="font-sans font-normal text-slate-400">—</span>}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export default function AdminPage() {
   const operators = useStore((s) => s.operators);
@@ -104,8 +136,42 @@ export default function AdminPage() {
   const [logoUrl, setLogoUrl] = useState("");
   const [busy, setBusy] = useState(false);
 
-  // Once company details are saved, the profile is locked (read-only ID card).
+  // Superadmin sees every onboarded client's company profile here instead of a
+  // single own-company card. Fetched from a superadmin-only endpoint.
+  const isSuperadmin = currentUser?.role === "superadmin";
+  const [clientProfiles, setClientProfiles] = useState<TenantProfile[] | null>(null);
+
+  useEffect(() => {
+    if (!isSuperadmin) return;
+    let cancelled = false;
+    fetch("/api/tenants/profiles", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : { profiles: [] }))
+      .then((d) => {
+        if (!cancelled) setClientProfiles(d.profiles ?? []);
+      })
+      .catch(() => {
+        if (!cancelled) setClientProfiles([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isSuperadmin]);
+
+  // Once company details are saved, the profile shows as a read-only ID card.
+  // The admin can reopen it for editing via the Edit button (editingCompany).
   const companyLocked = !!settings?.companyName?.trim();
+  const [editingCompany, setEditingCompany] = useState(false);
+
+  // Reopen the saved profile for editing, pre-filling the form from current
+  // settings so the admin edits the live values (not a stale sessionStorage copy).
+  function startEditCompany() {
+    setCompanyName(settings?.companyName || "");
+    setCompanyAddress(settings?.companyAddress || "");
+    setCompanyContact(settings?.companyContact || "");
+    setCompanyGst(settings?.companyGst || "");
+    setLogoUrl("");
+    setEditingCompany(true);
+  }
 
   // User Management
   const [opName, setOpName] = useSessionStorage("admin_opName", "");
@@ -140,6 +206,7 @@ export default function AdminPage() {
       // Do not remove from session storage so it persists when navigating back
       setLogoUrl("");
       setSettingsLoaded(false);
+      setEditingCompany(false);
     }
   }
 
@@ -200,8 +267,84 @@ return (
       </div>
 
       {activeTab === "company" && (
-        companyLocked ? (
-          /* ---- Locked company profile (ID-card style, read-only) ---- */
+        isSuperadmin ? (
+          /* ---- Superadmin: every onboarded client's company profile ---- */
+          <div className="flex flex-col gap-4">
+            <div className="flex items-center gap-2">
+              <h3 className="text-base font-extrabold text-slate-800">Onboarded Client Companies</h3>
+              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-bold text-slate-500">
+                {clientProfiles?.length ?? 0}
+              </span>
+            </div>
+            {clientProfiles === null ? (
+              <Panel className="p-8 text-sm text-slate-400">Loading client companies…</Panel>
+            ) : clientProfiles.length === 0 ? (
+              <Panel className="p-8 text-sm text-slate-400">No client companies onboarded yet.</Panel>
+            ) : (
+              <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
+                {clientProfiles.map((p) => {
+                  const hasProfile = !!p.companyName?.trim();
+                  return (
+                    <Panel key={p.id} className="p-0 overflow-hidden bg-white shadow-sm">
+                      {/* Header band */}
+                      <div className="flex items-center gap-4 bg-gradient-to-r from-slate-800 to-slate-900 px-6 py-5">
+                        <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-white/15 bg-white/95">
+                          {p.logoUrl ? (
+                            <img src={p.logoUrl} alt="Company Logo" className="h-full w-full object-contain p-1.5" />
+                          ) : (
+                            <Building size={28} className="text-slate-400" />
+                          )}
+                        </div>
+                        <div className="min-w-0">
+                          <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-blue-300">
+                            Registered Company Profile
+                          </div>
+                          <h4 className="mt-0.5 truncate text-lg font-black text-white">
+                            {p.companyName?.trim() || p.name}
+                          </h4>
+                          <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                            <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] font-bold text-slate-200">
+                              {p.plan}
+                            </span>
+                            <span
+                              className={cn(
+                                "rounded-full px-2 py-0.5 text-[10px] font-bold",
+                                p.status === "Active"
+                                  ? "bg-emerald-500/15 text-emerald-300"
+                                  : "bg-rose-500/15 text-rose-300",
+                              )}
+                            >
+                              {p.status}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Detail rows */}
+                      <div className="divide-y divide-slate-100">
+                        <ProfileRow icon={<MapPin size={17} />} label="Company Address" value={p.companyAddress} />
+                        <ProfileRow icon={<Phone size={17} />} label="Contact Details" value={p.companyContact} />
+                        <ProfileRow icon={<Receipt size={17} />} label="GST Number" value={p.companyGst} mono />
+                        <ProfileRow
+                          icon={<Building size={17} />}
+                          label="Domain / Seats"
+                          value={`${p.domain?.trim() || "—"} • ${p.seats} seat${p.seats === 1 ? "" : "s"}`}
+                        />
+                      </div>
+
+                      {!hasProfile && (
+                        <div className="border-t border-slate-100 bg-amber-50 px-6 py-3 text-xs font-medium text-amber-700">
+                          This client hasn't completed their company profile yet.
+                        </div>
+                      )}
+                    </Panel>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        ) : companyLocked && !editingCompany ? (
+          /* ---- Saved company profile (ID-card style, read-only until Edit) ---- */
           <Panel className="p-0 overflow-hidden bg-white shadow-sm max-w-3xl">
             {/* Header band */}
             <div className="flex items-center gap-5 bg-gradient-to-r from-slate-800 to-slate-900 px-8 py-7">
@@ -223,6 +366,12 @@ return (
                   <ShieldCheck size={13} /> Verified &amp; Locked
                 </div>
               </div>
+              <button
+                onClick={startEditCompany}
+                className="ml-auto flex shrink-0 items-center gap-1.5 self-start rounded-lg border border-white/20 bg-white/10 px-3 py-1.5 text-xs font-bold text-white hover:bg-white/20 transition-colors"
+              >
+                <Pencil size={13} /> Edit
+              </button>
             </div>
 
             {/* Detail rows */}
@@ -259,15 +408,17 @@ return (
             {/* Footer note */}
             <div className="flex items-center gap-2 border-t border-slate-100 bg-slate-50 px-8 py-4 text-xs font-medium text-slate-500">
               <Lock size={13} className="shrink-0" />
-              This profile is locked and is printed on every gate, billing &amp; loading token.
+              This profile is printed on every gate, billing &amp; loading token. Use Edit to update it.
             </div>
           </Panel>
         ) : (
           /* ---- One-time setup form (editable until saved) ---- */
           <Panel className="p-8 bg-white shadow-sm max-w-3xl">
-            <h3 className="mb-1 text-base font-extrabold text-slate-800">Set Up Company Profile</h3>
+            <h3 className="mb-1 text-base font-extrabold text-slate-800">
+              {editingCompany ? "Edit Company Profile" : "Set Up Company Profile"}
+            </h3>
             <p className="mb-6 text-xs text-slate-400">
-              These details print on every token. Once saved, the profile is locked and can no longer be edited here.
+              These details print on every gate, billing &amp; loading token.
             </p>
             <div className="flex flex-col gap-5">
               <div>
@@ -321,12 +472,19 @@ return (
                 <label className="mb-1 block text-xs font-bold text-slate-600">GST NUMBER</label>
                 <input value={companyGst} onChange={e => setCompanyGst(e.target.value)} className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-2 text-sm font-mono" />
               </div>
-              <div className="flex items-center justify-between gap-3 mt-4">
-                <span className="flex items-center gap-1.5 text-[11px] font-medium text-amber-600">
-                  <Lock size={12} /> Locks after saving
-                </span>
+              <div className="flex items-center justify-end gap-3 mt-4">
+                {editingCompany && (
+                  <button
+                    type="button"
+                    onClick={() => setEditingCompany(false)}
+                    disabled={busy}
+                    className="rounded-lg border border-slate-200 px-5 py-2.5 text-xs font-bold text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
+                )}
                 <button onClick={handleSaveCompany} disabled={busy} className="rounded-lg bg-blue-600 px-6 py-2.5 text-xs font-bold text-white hover:bg-blue-700 disabled:opacity-50">
-                  Save Company Information
+                  {busy ? "Saving..." : editingCompany ? "Save Changes" : "Save Company Information"}
                 </button>
               </div>
             </div>

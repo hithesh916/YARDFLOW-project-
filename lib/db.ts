@@ -5,13 +5,15 @@
 //
 // Operational data (tickets, alerts, activity, counters, settings) is isolated
 // PER TENANT: each onboarded company gets its own dataset, keyed by tenantId.
-// The caller's tenantId is threaded in from the API layer (x-tenant-id header);
-// seeded demo accounts and the superadmin (no tenantId) fall back to the shared
-// DEFAULT_TENANT workspace. tenants/operators/permissions remain global (managed
-// by the superadmin). NOTE: this is functional isolation, not a security
-// boundary — the header is client-supplied. Server-enforced sessions are Phase 3.
+// The caller's tenantId is derived SERVER-SIDE from a signed session cookie (see
+// lib/auth.ts + lib/api-auth.ts) — never from a client-supplied header — so a
+// caller can only ever touch their own workspace. Seeded demo accounts and the
+// superadmin (no tenantId) fall back to the shared DEFAULT_TENANT workspace.
+// tenants/operators/permissions remain global (managed by the superadmin).
+// Passwords are stored as scrypt hashes and verified server-side (see authenticate).
 
 import prisma from "./prisma";
+import { hashPassword, verifyPassword, isHashed, sameTenant } from "./auth";
 import { buildSeed, pick, BAYS, CARGO } from "./seed";
 import type {
   ActivityAction,
@@ -21,6 +23,7 @@ import type {
   RolePermission,
   SystemSettings,
   TenantClient,
+  TenantProfile,
   Ticket,
   TicketStatus,
   YardState,
@@ -183,13 +186,51 @@ function toSettings(r: SettingsRow): SystemSettings {
 // Mirrors the old file store's "auto-seed on first run": if the default
 // workspace has no Settings row yet, plant the seed operators/permissions/
 // settings/counter so the app works with zero manual setup.
+// The superadmin is a DB operator (not a hardcoded login). Because ensureSeeded
+// only plants the full seed when the DEFAULT workspace is brand-new, an ALREADY-
+// seeded database (e.g. production, seeded before this account existed) would
+// never get a superadmin row. This idempotent guard fixes that: it creates the
+// account once if — and only if — no superadmin exists yet, and never touches an
+// existing one (so a rotated password is preserved).
+let superChecked = false;
+async function ensureSuperadmin() {
+  if (superChecked) return;
+  try {
+    const existing = await prisma.operator.findFirst({ where: { username: "superadmin" } });
+    if (!existing) {
+      const passcode = await hashPassword("super123");
+      await prisma.operator.create({
+        data: {
+          id: "op-super",
+          name: "Platform Owner",
+          username: "superadmin",
+          passcode,
+          role: "superadmin",
+          tenantId: null,
+          isFirstLogin: false,
+        },
+      });
+    }
+  } catch (e) {
+    // A concurrent request may have created it — that's fine.
+    console.warn("ensureSuperadmin skipped (likely already exists):", e);
+  }
+  superChecked = true;
+}
+
 let seedChecked = false;
 async function ensureSeeded() {
+  await ensureSuperadmin();
   if (seedChecked) return;
   const existing = await prisma.settings.findUnique({ where: { tenantId: DEFAULT_TENANT } });
   if (!existing) {
     const seed = buildSeed();
     const tz = seed.settings?.timezone || "Asia/Kolkata";
+    // Hash the seed passcodes before insert (scrypt is async, so it can't run
+    // inside the synchronous $transaction array below).
+    const hashedOps = await Promise.all(
+      seed.operators.map(async (o) => ({ ...o, passcode: await hashPassword(o.passcode) })),
+    );
     try {
       await prisma.$transaction([
         prisma.settings.upsert({
@@ -202,7 +243,7 @@ async function ensureSeeded() {
           update: {},
           create: { tenantId: DEFAULT_TENANT, ...seed.counters, lastResetDate: getTodayString(tz) },
         }),
-        ...seed.operators.map((o) =>
+        ...hashedOps.map((o) =>
           prisma.operator.upsert({
             where: { id: o.id },
             update: {},
@@ -239,27 +280,26 @@ async function ensureSeeded() {
 const provisionedTenants = new Set<string>();
 async function ensureTenantWorkspace(tenantId: string) {
   if (tenantId === DEFAULT_TENANT || provisionedTenants.has(tenantId)) return;
-  const existing = await prisma.settings.findUnique({ where: { tenantId } });
-  if (!existing) {
-    const seed = buildSeed();
-    const tz = seed.settings?.timezone || "Asia/Kolkata";
-    try {
-      await prisma.$transaction([
-        prisma.settings.upsert({
-          where: { tenantId },
-          update: {},
-          create: { tenantId, ...seed.settings },
-        }),
-        prisma.counter.upsert({
-          where: { tenantId },
-          update: {},
-          create: { tenantId, ...seed.counters, lastResetDate: getTodayString(tz) },
-        }),
-      ]);
-    } catch (e) {
-      // A concurrent request may have provisioned it already — that's fine.
-      console.warn("ensureTenantWorkspace skipped (likely already provisioned):", e);
-    }
+  const seed = buildSeed();
+  const tz = seed.settings?.timezone || "Asia/Kolkata";
+  try {
+    // Always upsert both rows: Settings may exist (created by createTenant) but
+    // Counter might be missing if provisioning was partial, or vice-versa.
+    await prisma.$transaction([
+      prisma.settings.upsert({
+        where: { tenantId },
+        update: {},
+        create: { tenantId, ...seed.settings },
+      }),
+      prisma.counter.upsert({
+        where: { tenantId },
+        update: {},
+        create: { tenantId, ...seed.counters, lastResetDate: getTodayString(tz) },
+      }),
+    ]);
+  } catch (e) {
+    // A concurrent request may have provisioned it already — that's fine.
+    console.warn("ensureTenantWorkspace skipped (likely already provisioned):", e);
   }
   provisionedTenants.add(tenantId);
 }
@@ -331,7 +371,9 @@ async function buildState(tenantId: string = DEFAULT_TENANT): Promise<YardState>
     activity: activity.map(toActivity),
     settings: settingsRow ? toSettings(settingsRow) : { ...DEFAULT_SETTINGS },
     tenants: tenants.map(toTenant),
-    operators: operators.map(toOperator),
+    // Never ship passcodes (hashes) to the client. The snapshot is for display/
+    // nav only; authentication happens server-side against the DB.
+    operators: operators.map((o) => ({ ...toOperator(o), passcode: "" })),
     permissions: permissions.map(toPermission),
   };
 }
@@ -349,6 +391,31 @@ export async function getState(tenantId?: string): Promise<YardState> {
   const tid = tenantOf(tenantId);
   await prep(tid);
   return buildState(tid);
+}
+
+// Superadmin-only: every onboarded tenant's directory metadata joined with its
+// registered company profile (from that tenant's Settings row). Tenants without
+// a Settings row (or with an empty profile) come back with the company fields
+// undefined so the caller can show "not set up yet". The shared `default`
+// workspace is intentionally excluded — it is not an onboarded client.
+export async function listTenantProfiles(): Promise<TenantProfile[]> {
+  const [tenants, settings] = await Promise.all([
+    prisma.tenant.findMany({ orderBy: { createdAt: "asc" } }),
+    prisma.settings.findMany(),
+  ]);
+  const byTenant = new Map(settings.map((s) => [s.tenantId, s]));
+  return tenants.map((t) => {
+    const s = byTenant.get(t.id);
+    return {
+      ...toTenant(t),
+      companyName: s?.companyName ?? undefined,
+      companyAddress: s?.companyAddress ?? undefined,
+      companyContact: s?.companyContact ?? undefined,
+      companyEmail: s?.companyEmail ?? undefined,
+      companyGst: s?.companyGst ?? undefined,
+      logoUrl: s?.logoUrl ?? undefined,
+    };
+  });
 }
 
 export async function createTicket(input: {
@@ -374,16 +441,26 @@ export async function createTicket(input: {
 
     const serial = input.createdSource === "billing" ? 0 : todaySerials.length > 0 ? Math.max(...todaySerials) + 1 : 1;
     const datePart = todayStr.replace(/-/g, "");
-    const id =
+    const idBase =
       input.createdSource === "billing"
         ? `B-${datePart}-${Math.floor(1000 + Math.random() * 9000)}`
         : `TK-${datePart}-${serial}`;
+    // Ticket `id` is a GLOBAL primary key but `serial` is per-tenant, so two
+    // companies registering on the same day would collide on `TK-<date>-<serial>`
+    // and the second insert would throw. Namespace non-default tenants by their
+    // (already-unique) tenantId. The default/demo workspace keeps bare ids for
+    // backward compatibility with existing rows and printed QR tokens.
+    const id = DEFAULT_TENANT === "default" ? idBase : `${DEFAULT_TENANT}-${idBase}`;
 
     const counter = await tx.counter.findUnique({ where: { tenantId: DEFAULT_TENANT } });
     const newBoe = (counter?.boe ?? 1000) + 1;
-    await tx.counter.update({
+    // Use upsert instead of update so that the row is created on-the-fly if it
+    // somehow doesn't exist yet (e.g. partially-provisioned tenant workspace).
+    const todayForCounter = getTodayString("Asia/Kolkata");
+    await tx.counter.upsert({
       where: { tenantId: DEFAULT_TENANT },
-      data: { boe: newBoe, ...(input.createdSource !== "billing" ? { serial } : {}) },
+      update: { boe: newBoe, ...(input.createdSource !== "billing" ? { serial } : {}) },
+      create: { tenantId: DEFAULT_TENANT, boe: newBoe, serial: input.createdSource !== "billing" ? serial : 0, billingSerial: 0, loadingSerial: 0, lastResetDate: todayForCounter },
     });
 
     const queuePos = await nextQueuePos(tx, DEFAULT_TENANT);
@@ -504,7 +581,11 @@ export async function completeLoading(
       if (loadingSerial < maxExistingLoading) loadingSerial = maxExistingLoading;
       loadingSerial += 1;
 
-      await tx.counter.update({ where: { tenantId: DEFAULT_TENANT }, data: { loadingSerial } });
+      await tx.counter.upsert({
+        where: { tenantId: DEFAULT_TENANT },
+        update: { loadingSerial },
+        create: { tenantId: DEFAULT_TENANT, boe: 1000, serial: 0, billingSerial: 0, loadingSerial, lastResetDate: todayStr },
+      });
       await tx.ticket.update({
         where: { id },
         data: {
@@ -586,7 +667,11 @@ export async function completeBilling(
       billingSerial += 1;
 
       const nextInvoice = invoice.trim() || null;
-      await tx.counter.update({ where: { tenantId: DEFAULT_TENANT }, data: { billingSerial } });
+      await tx.counter.upsert({
+        where: { tenantId: DEFAULT_TENANT },
+        update: { billingSerial },
+        create: { tenantId: DEFAULT_TENANT, boe: 1000, serial: 0, billingSerial, loadingSerial: 0, lastResetDate: todayStr },
+      });
       await tx.ticket.update({
         where: { id },
         data: {
@@ -713,65 +798,86 @@ export async function ackAlert(id: number, tenantId?: string): Promise<YardState
   return buildState(DEFAULT_TENANT);
 }
 
-export async function reset(): Promise<YardState> {
+// Reset ONE workspace's operational data. Previously this wiped every tenant,
+// operator and permission globally (a public endpoint could nuke all clients) —
+// now it is scoped to `tenantId` and never deletes other tenants' data. The
+// route gates this to the superadmin. Only the shared demo workspace additionally
+// restores the seed operators/permissions/settings.
+export async function reset(tenantId?: string): Promise<YardState> {
+  const scope = tenantOf(tenantId);
   const seed = buildSeed();
   const tz = seed.settings?.timezone || "Asia/Kolkata";
   const todayStr = getTodayString(tz);
+
   await prisma.$transaction([
-    prisma.ticket.deleteMany({ where: { tenantId: DEFAULT_TENANT } }),
-    prisma.alert.deleteMany({ where: { tenantId: DEFAULT_TENANT } }),
-    prisma.activityEntry.deleteMany({ where: { tenantId: DEFAULT_TENANT } }),
-    prisma.tenant.deleteMany({}),
-    prisma.operator.deleteMany({}),
-    prisma.rolePermission.deleteMany({}),
-    prisma.settings.upsert({
-      where: { tenantId: DEFAULT_TENANT },
-      update: {
-        terminalName: seed.settings.terminalName,
-        maxActiveBays: seed.settings.maxActiveBays,
-        timezone: seed.settings.timezone,
-        companyName: null,
-        companyAddress: null,
-        companyContact: null,
-        companyEmail: null,
-        companyGst: null,
-        logoUrl: null,
-        formCustomization: undefined,
-      },
-      create: { tenantId: DEFAULT_TENANT, ...seed.settings },
-    }),
+    prisma.ticket.deleteMany({ where: { tenantId: scope } }),
+    prisma.alert.deleteMany({ where: { tenantId: scope } }),
+    prisma.activityEntry.deleteMany({ where: { tenantId: scope } }),
     prisma.counter.upsert({
-      where: { tenantId: DEFAULT_TENANT },
+      where: { tenantId: scope },
       update: { serial: 0, billingSerial: 0, loadingSerial: 0, boe: seed.counters.boe, lastResetDate: todayStr },
-      create: { tenantId: DEFAULT_TENANT, ...seed.counters, lastResetDate: todayStr },
+      create: { tenantId: scope, ...seed.counters, lastResetDate: todayStr },
     }),
-    ...seed.operators.map((o) =>
-      prisma.operator.create({
-        data: {
-          id: o.id,
-          name: o.name,
-          username: o.username,
-          passcode: o.passcode,
-          role: o.role,
-          tenantId: o.tenantId ?? null,
-          isFirstLogin: o.isFirstLogin ?? false,
-        },
-      }),
-    ),
-    ...seed.permissions.map((p) =>
-      prisma.rolePermission.create({ data: { role: p.role, allowedPaths: p.allowedPaths } }),
-    ),
     prisma.activityEntry.create({
       data: {
         id: rid(),
-        tenantId: DEFAULT_TENANT,
+        tenantId: scope,
         at: new Date().toISOString(),
         action: "reset",
-        detail: "Demo data reset",
+        detail: "Workspace data reset",
       },
     }),
   ]);
-  return buildState();
+
+  if (scope === DEFAULT_TENANT) {
+    // Restore the demo logins + permissions to their known defaults. Seed ids
+    // (op-super, op-1..op-5) never collide with real tenant operators
+    // (op-<timestamp>), so upserting them leaves onboarded accounts untouched.
+    const hashedOps = await Promise.all(
+      seed.operators.map(async (o) => ({ ...o, passcode: await hashPassword(o.passcode) })),
+    );
+    await prisma.$transaction([
+      prisma.settings.upsert({
+        where: { tenantId: DEFAULT_TENANT },
+        update: {
+          terminalName: seed.settings.terminalName,
+          maxActiveBays: seed.settings.maxActiveBays,
+          timezone: seed.settings.timezone,
+          companyName: null,
+          companyAddress: null,
+          companyContact: null,
+          companyEmail: null,
+          companyGst: null,
+          logoUrl: null,
+          formCustomization: undefined,
+        },
+        create: { tenantId: DEFAULT_TENANT, ...seed.settings },
+      }),
+      ...hashedOps.map((o) =>
+        prisma.operator.upsert({
+          where: { id: o.id },
+          update: { name: o.name, username: o.username, passcode: o.passcode, role: o.role, isFirstLogin: o.isFirstLogin ?? false },
+          create: {
+            id: o.id,
+            name: o.name,
+            username: o.username,
+            passcode: o.passcode,
+            role: o.role,
+            tenantId: o.tenantId ?? null,
+            isFirstLogin: o.isFirstLogin ?? false,
+          },
+        }),
+      ),
+      ...seed.permissions.map((p) =>
+        prisma.rolePermission.upsert({
+          where: { role: p.role },
+          update: { allowedPaths: p.allowedPaths },
+          create: { role: p.role, allowedPaths: p.allowedPaths },
+        }),
+      ),
+    ]);
+  }
+  return buildState(scope);
 }
 
 export async function updateSettings(settings: Partial<SystemSettings>, tenantId?: string): Promise<YardState> {
@@ -841,6 +947,8 @@ export async function createTenant(input: {
   // rows keyed to its tenantId (tickets/alerts/activity start empty by absence).
   const seed = buildSeed();
   const tz = seed.settings?.timezone || "Asia/Kolkata";
+  const adminHash =
+    input.adminUsername && input.adminPassword ? await hashPassword(input.adminPassword) : null;
 
   await prisma.$transaction(async (tx) => {
     await tx.tenant.create({
@@ -861,13 +969,13 @@ export async function createTenant(input: {
     await tx.counter.create({
       data: { tenantId, ...seed.counters, lastResetDate: getTodayString(tz) },
     });
-    if (input.adminUsername && input.adminPassword) {
+    if (input.adminUsername && adminHash) {
       await tx.operator.create({
         data: {
           id: `op-${Date.now()}`,
           name: "System Admin",
           username: input.adminUsername.trim().toLowerCase(),
-          passcode: input.adminPassword,
+          passcode: adminHash,
           role: "Administrator",
           tenantId,
           isFirstLogin: true,
@@ -1006,13 +1114,14 @@ export async function createOperator(input: {
 
   const username = input.username.trim().toLowerCase();
   if (!operators.some((o) => o.username === username)) {
+    const passcode = await hashPassword(input.passcode);
     await prisma.$transaction([
       prisma.operator.create({
         data: {
           id: `op-${Date.now()}`,
           name: input.name,
           username,
-          passcode: input.passcode,
+          passcode,
           role: input.role,
           tenantId: input.tenantId ?? null,
           isFirstLogin: true,
@@ -1032,17 +1141,25 @@ export async function createOperator(input: {
   return buildState(scope);
 }
 
-export async function deleteOperator(id: string, tenantId?: string): Promise<YardState> {
-  const DEFAULT_TENANT = tenantOf(tenantId); // scope the returned snapshot + audit entry to the caller's workspace (shadows the module default)
-  await prep(DEFAULT_TENANT);
+export async function deleteOperator(
+  id: string,
+  caller: { role: string; tenantId: string | null },
+): Promise<YardState> {
+  const scope = tenantOf(caller.tenantId);
+  await prep(scope);
   const op = await prisma.operator.findUnique({ where: { id } });
   if (op) {
+    // A non-superadmin admin may only delete operators inside their own tenant.
+    const allowed = caller.role === "superadmin" || sameTenant(op.tenantId, caller.tenantId);
+    if (!allowed) {
+      throw new Error("Not authorized to remove this operator.");
+    }
     await prisma.$transaction([
       prisma.operator.delete({ where: { id } }),
       prisma.activityEntry.create({
         data: {
           id: rid(),
-          tenantId: DEFAULT_TENANT,
+          tenantId: scope,
           at: new Date().toISOString(),
           action: "reset",
           detail: `Removed operator: ${op.name}`,
@@ -1050,20 +1167,51 @@ export async function deleteOperator(id: string, tenantId?: string): Promise<Yar
       }),
     ]);
   }
-  return buildState(DEFAULT_TENANT);
+  return buildState(scope);
 }
 
-export async function changeOperatorPassword(username: string, passcode: string, tenantId?: string): Promise<YardState> {
-  const DEFAULT_TENANT = tenantOf(tenantId); // scope the returned snapshot + audit entry to the caller's workspace (shadows the module default)
-  await prep(DEFAULT_TENANT);
-  const op = await prisma.operator.findFirst({ where: { username: username.trim().toLowerCase() } });
+// Change a password with SERVER-SIDE authorization. A caller may only change:
+//   - their own password, or
+//   - (as Administrator/superadmin) a password within their own tenant,
+//   - (as superadmin) any password.
+// Previously this looked the operator up by username with no auth check at all,
+// so anyone could reset anyone's password. The caller identity comes from the
+// verified session, never the request body.
+export async function changeOperatorPassword(
+  targetUsername: string,
+  passcode: string,
+  caller: { username: string; role: string; tenantId: string | null },
+  currentPasscode?: string,
+): Promise<YardState> {
+  const scope = tenantOf(caller.tenantId);
+  await prep(scope);
+  const uname = targetUsername.trim().toLowerCase();
+  const op = await prisma.operator.findFirst({ where: { username: uname } });
   if (op) {
+    const callerIsSuper = caller.role === "superadmin";
+    const callerIsAdmin =
+      callerIsSuper || caller.role === "Administrator" || caller.role === "Admin";
+    const isSelf = uname === caller.username.trim().toLowerCase();
+    const allowed =
+      isSelf ||
+      callerIsSuper ||
+      (callerIsAdmin && sameTenant(op.tenantId, caller.tenantId));
+    if (!allowed) {
+      throw new Error("Not authorized to change this password.");
+    }
+    // Self-service change must prove knowledge of the current passcode. An admin
+    // resetting a DIFFERENT operator's password (isSelf === false) does not.
+    if (isSelf) {
+      const ok = currentPasscode ? await verifyPassword(op.passcode, currentPasscode) : false;
+      if (!ok) throw new Error("Current passcode is incorrect.");
+    }
+    const hashed = await hashPassword(passcode);
     await prisma.$transaction([
-      prisma.operator.update({ where: { id: op.id }, data: { passcode, isFirstLogin: false } }),
+      prisma.operator.update({ where: { id: op.id }, data: { passcode: hashed, isFirstLogin: false } }),
       prisma.activityEntry.create({
         data: {
           id: rid(),
-          tenantId: DEFAULT_TENANT,
+          tenantId: scope,
           at: new Date().toISOString(),
           action: "reset",
           detail: `Updated passcode for operator: ${op.name}`,
@@ -1071,7 +1219,7 @@ export async function changeOperatorPassword(username: string, passcode: string,
       }),
     ]);
   }
-  return buildState(DEFAULT_TENANT);
+  return buildState(scope);
 }
 
 /* ---------- Role Permissions Management ---------- */
@@ -1095,4 +1243,93 @@ export async function updateRolePermissions(role: string, allowedPaths: string[]
     }),
   ]);
   return buildState(DEFAULT_TENANT);
+}
+
+/* ---------- Server-side authentication ---------- */
+
+// The safe identity returned to the client after login / for /me. Never carries a
+// passcode. `allowedPaths` drives client nav only — the server, not this list, is
+// the security boundary.
+export interface AuthIdentity {
+  username: string;
+  name: string;
+  role: string;
+  tenantId: string | null;
+  allowedPaths: string[];
+  isFirstLogin: boolean;
+}
+
+// Resolve a role's nav paths from the permissions grid, mirroring the fallback
+// logic the client used to run. Superadmin always gets everything; everyone else
+// has /superadmin stripped.
+function allowedPathsFor(role: string, permissions: RolePermission[]): string[] {
+  if (role === "superadmin") {
+    return ["/", "/entry", "/billing", "/loading", "/exit", "/reports", "/admin", "/superadmin"];
+  }
+  const grid = permissions.find((p) => p.role === role);
+  let paths = grid?.allowedPaths;
+  if (!paths) {
+    if (role === "Administrator" || role === "Admin") {
+      paths = ["/", "/entry", "/billing", "/loading", "/exit", "/reports", "/admin"];
+    } else if (role === "Gate Operator") {
+      paths = ["/", "/entry"];
+    } else if (role === "Loading Operator") {
+      paths = ["/", "/loading"];
+    } else if (role === "Billing Agent") {
+      paths = ["/", "/billing"];
+    } else if (role === "Security Guard") {
+      paths = ["/", "/exit"];
+    } else {
+      paths = ["/"];
+    }
+  }
+  return paths.filter((p) => p !== "/superadmin");
+}
+
+function toIdentity(op: OperatorRow, permissions: RolePermission[]): AuthIdentity {
+  return {
+    username: op.username,
+    name: op.name,
+    role: op.role,
+    tenantId: op.tenantId ?? null,
+    allowedPaths: allowedPathsFor(op.role, permissions),
+    isFirstLogin: op.isFirstLogin,
+  };
+}
+
+// Verify a username + passcode against the DB. Returns the safe identity on
+// success, or null on unknown user / bad password. Transparently upgrades a
+// legacy plaintext passcode to a scrypt hash on the first correct sign-in.
+export async function authenticate(username: string, passcode: string): Promise<AuthIdentity | null> {
+  await ensureSeeded();
+  const uname = username.trim().toLowerCase();
+  const op = await prisma.operator.findFirst({ where: { username: uname } });
+  if (!op) return null;
+
+  const ok = await verifyPassword(op.passcode, passcode);
+  if (!ok) return null;
+
+  // Lazy migration: the stored value was legacy plaintext — replace it with a
+  // hash now that we've confirmed it. No separate migration script needed.
+  if (!isHashed(op.passcode)) {
+    try {
+      const upgraded = await hashPassword(passcode);
+      await prisma.operator.update({ where: { id: op.id }, data: { passcode: upgraded } });
+    } catch {
+      // Non-fatal: login still succeeds; we'll upgrade next time.
+    }
+  }
+
+  const permissions = await prisma.rolePermission.findMany();
+  return toIdentity(op, permissions.map(toPermission));
+}
+
+// Fetch the current identity for an already-authenticated session (used by /me),
+// so the client always reflects the live role/permissions/tenant.
+export async function getIdentity(username: string): Promise<AuthIdentity | null> {
+  await ensureSeeded();
+  const op = await prisma.operator.findFirst({ where: { username: username.trim().toLowerCase() } });
+  if (!op) return null;
+  const permissions = await prisma.rolePermission.findMany();
+  return toIdentity(op, permissions.map(toPermission));
 }

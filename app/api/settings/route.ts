@@ -1,12 +1,15 @@
 import { NextResponse } from "next/server";
 import { updateSettings } from "@/lib/db";
+import { requireAdmin } from "@/lib/api-auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
   try {
-    const tenantId = req.headers.get("x-tenant-id") ?? undefined;
+    const s = requireAdmin(req);
+    if (s instanceof NextResponse) return s;
+    const tenantId = s.tenantId ?? undefined;
     const body = await req.json().catch(() => ({}));
     const { 
       terminalName, maxActiveBays, timezone, 
