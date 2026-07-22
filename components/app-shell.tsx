@@ -35,8 +35,9 @@ import {
   DropdownMenuContent,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { useStore } from "@/lib/store";
-import { fmtClock, fmtDate } from "@/lib/format";
+import { filterBySearch, useStore } from "@/lib/store";
+import { fmtClock, fmtDate, pad } from "@/lib/format";
+import { STATUS_LABELS, type Ticket, type TicketStatus } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { Login } from "@/components/login";
 import { Panel } from "@/components/panel";
@@ -146,6 +147,34 @@ const ROLE_PRIMARY_PATHS: Record<string, string> = {
   "Security Guard": "/exit",
 };
 
+// All stage tokens a ticket carries, formatted for display (G- gate, B- billing,
+// L- loading). Billing-desk tickets have no gate serial (serial 0), so it's omitted.
+function ticketTokens(t: Ticket): string[] {
+  const out: string[] = [];
+  if (t.serial > 0) out.push(t.manualGateToken || `G-${pad(t.serial)}`);
+  if (t.billingSerial) out.push(t.manualBillingToken || `B-${pad(t.billingSerial)}`);
+  if (t.loadingSerial) out.push(`L-${pad(t.loadingSerial)}`);
+  return out;
+}
+
+// Where a search hit should jump to, based on its current lifecycle stage. Holds are
+// managed on the Exit page; exited tickets live in Reports history.
+const STATUS_ROUTE: Record<TicketStatus, string> = {
+  awaiting_billing: "/billing",
+  awaiting_loading: "/loading",
+  awaiting_exit: "/exit",
+  held: "/exit",
+  exited: "/reports",
+};
+
+const STATUS_DOT: Record<TicketStatus, string> = {
+  awaiting_billing: "bg-amber-500",
+  awaiting_loading: "bg-blue-500",
+  awaiting_exit: "bg-violet-500",
+  held: "bg-rose-500",
+  exited: "bg-slate-400",
+};
+
 export function AppShell({
   children,
   dbConfigured = false,
@@ -159,6 +188,8 @@ export function AppShell({
   const ready = useStore((s) => s.ready);
   const search = useStore((s) => s.search);
   const setSearch = useStore((s) => s.setSearch);
+  const tickets = useStore((s) => s.tickets);
+  const [searchFocused, setSearchFocused] = useState(false);
   const hydrate = useStore((s) => s.hydrate);
   const startPolling = useStore((s) => s.startPolling);
   const stopPolling = useStore((s) => s.stopPolling);
@@ -191,6 +222,27 @@ export function AppShell({
     (currentTenant.status !== "Active" || currentTenant.expiryDate < todayStr);
 
   const unacked = alerts.filter((a) => !a.acknowledged).length;
+
+  // Global token lookup: match across BOE / vehicle / any stage token, all statuses.
+  // Active vehicles first (still in the yard), then most-recent by entry time.
+  const trimmedSearch = search.trim();
+  const searchResults = trimmedSearch
+    ? filterBySearch(tickets, search)
+        .slice()
+        .sort((a, b) => {
+          const aActive = a.status !== "exited" ? 0 : 1;
+          const bActive = b.status !== "exited" ? 0 : 1;
+          if (aActive !== bActive) return aActive - bActive;
+          return (b.entryTime || "").localeCompare(a.entryTime || "");
+        })
+    : [];
+  const SEARCH_LIMIT = 8;
+  const searchShown = searchResults.slice(0, SEARCH_LIMIT);
+
+  function goToTicket(t: Ticket) {
+    setSearchFocused(false);
+    router.push(STATUS_ROUTE[t.status] ?? "/");
+  }
   const [now, setNow] = useState<Date | null>(null);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [hasRedirected, setHasRedirected] = useState(false);
@@ -511,14 +563,84 @@ export function AppShell({
             <div className="relative w-full max-w-[420px]">
               <Search
                 size={16}
-                className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 z-10"
               />
               <input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search vehicle, BOE, or serial..."
-                className="w-full rounded-lg border border-slate-200 bg-white py-2 pl-9 pr-3 text-[13px] outline-none focus:ring-[3px] focus:ring-blue-100"
+                onFocus={() => setSearchFocused(true)}
+                onBlur={() => setTimeout(() => setSearchFocused(false), 150)}
+                placeholder="Search vehicle, BOE, or token no..."
+                className="w-full rounded-lg border border-slate-200 bg-white py-2 pl-9 pr-8 text-[13px] outline-none focus:ring-[3px] focus:ring-blue-100"
               />
+              {search && (
+                <button
+                  type="button"
+                  onClick={() => setSearch("")}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700"
+                  aria-label="Clear search"
+                >
+                  <X size={14} />
+                </button>
+              )}
+
+              {/* Token search results dropdown */}
+              {searchFocused && trimmedSearch.length > 0 && (
+                <div className="absolute left-0 right-0 top-[calc(100%+6px)] z-30 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl">
+                  {searchShown.length === 0 ? (
+                    <div className="px-4 py-6 text-center text-[13px] text-slate-400">
+                      No tokens match &ldquo;{trimmedSearch}&rdquo;
+                    </div>
+                  ) : (
+                    <>
+                      <div className="max-h-[360px] overflow-y-auto">
+                        {searchShown.map((t) => {
+                          const tokens = ticketTokens(t);
+                          return (
+                            <button
+                              key={t.id}
+                              type="button"
+                              onMouseDown={(e) => e.preventDefault()}
+                              onClick={() => goToTicket(t)}
+                              className="flex w-full items-center gap-3 border-b border-slate-50 px-3.5 py-2.5 text-left last:border-b-0 hover:bg-slate-50"
+                            >
+                              <div className="min-w-0 flex-1">
+                                <div className="flex items-center gap-2">
+                                  <span className="truncate text-[13px] font-extrabold text-slate-800">
+                                    {t.vehicle || "—"}
+                                  </span>
+                                  {tokens.map((tok) => (
+                                    <span
+                                      key={tok}
+                                      className="shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-bold text-slate-600"
+                                    >
+                                      {tok}
+                                    </span>
+                                  ))}
+                                </div>
+                                <div className="mt-0.5 truncate text-[11px] text-slate-400">
+                                  BOE: {t.boe || "—"}
+                                </div>
+                              </div>
+                              <div className="flex shrink-0 items-center gap-1.5">
+                                <span className={cn("h-1.5 w-1.5 rounded-full", STATUS_DOT[t.status])} />
+                                <span className="text-[10px] font-semibold text-slate-500">
+                                  {STATUS_LABELS[t.status]}
+                                </span>
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                      {searchResults.length > SEARCH_LIMIT && (
+                        <div className="border-t border-slate-100 bg-slate-50/60 px-3.5 py-1.5 text-center text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                          Showing {SEARCH_LIMIT} of {searchResults.length} — refine your search
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+              )}
             </div>
           </div>
 

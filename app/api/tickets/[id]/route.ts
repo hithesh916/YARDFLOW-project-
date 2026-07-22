@@ -45,6 +45,8 @@ export async function POST(
           vehicle: vehicle.slice(0, 40),
           agent: typeof body.agent === "string" ? body.agent.slice(0, 120) : undefined,
           remarks: typeof body.remarks === "string" ? body.remarks.slice(0, 500) : undefined,
+          driverContact: typeof body.driverContact === "string" ? body.driverContact.slice(0, 20) : undefined,
+          driverDl: typeof body.driverDl === "string" ? body.driverDl.slice(0, 30) : undefined,
         }, tenantId);
         break;
       }

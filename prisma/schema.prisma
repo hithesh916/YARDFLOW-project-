@@ -107,6 +107,8 @@ model Ticket {
   manualGateToken    String?
   manualBillingToken String?
   workOrder          String?
+  driverContact      String?
+  driverDl           String?
   createdAt          DateTime     @default(now())
 
   @@index([tenantId])

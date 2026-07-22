@@ -258,6 +258,8 @@ ${THERMAL_CSS}
       ${row("VEHICLE", ticket.vehicle)}
       ${row("BOE", ticket.boe)}
       ${row("CHA / AGENT", ticket.agent)}
+      ${row("DRIVER CONTACT", ticket.driverContact || "—")}
+      ${row("DRIVER DL", ticket.driverDl || "—")}
       ${row("ENTRY TIME", fmtTime(entry, settings?.timezone))}
       ${row("ENTRY DATE", fmtDate(entry, settings?.timezone))}
     </div>

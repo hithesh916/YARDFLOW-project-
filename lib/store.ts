@@ -52,6 +52,8 @@ interface Store {
     agent?: string;
     cargo?: string;
     remarks?: string;
+    driverContact?: string;
+    driverDl?: string;
     createdSource?: "entry" | "billing";
   }) => Promise<Ticket | null>;
   ticketAction: (
@@ -514,7 +516,26 @@ export const useStore = create<Store>((set, get) => ({
   },
 }));
 
-/** Case-insensitive filter across vehicle / boe / serial. */
+/**
+ * The lowercased token strings a ticket can be found by — every stage token in
+ * both bare and prefixed form: gate `G-00n`, billing `B-00n`, loading `L-00n`.
+ * e.g. serial 2 → ["g-002", "g-2", "002", "2"], so "b-2", "b-002", "2", "002"
+ * all match a billing token 2.
+ */
+function tokenStrings(t: Ticket): string[] {
+  const out: string[] = [];
+  const add = (prefix: string, n?: number | null) => {
+    if (n === undefined || n === null) return;
+    const padded = String(n).padStart(3, "0");
+    out.push(`${prefix}-${padded}`, `${prefix}-${n}`, padded, String(n));
+  };
+  add("g", t.serial);
+  add("b", t.billingSerial);
+  add("l", t.loadingSerial);
+  return out;
+}
+
+/** Case-insensitive filter across vehicle / BOE / token no (G-, B-, L-). */
 export function filterBySearch(tickets: Ticket[], search: string): Ticket[] {
   const q = search.trim().replace(/\s+/g, " ").toLowerCase();
   if (!q) return tickets;
@@ -522,6 +543,6 @@ export function filterBySearch(tickets: Ticket[], search: string): Ticket[] {
     (t) =>
       t.vehicle.replace(/\s+/g, " ").toLowerCase().includes(q) ||
       t.boe.replace(/\s+/g, " ").toLowerCase().includes(q) ||
-      String(t.serial).includes(q),
+      tokenStrings(t).some((tok) => tok.includes(q)),
   );
 }

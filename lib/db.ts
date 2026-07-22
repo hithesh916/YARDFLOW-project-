@@ -132,6 +132,8 @@ function toTicket(r: TicketRow): Ticket {
     manualGateToken: r.manualGateToken ?? undefined,
     manualBillingToken: r.manualBillingToken ?? undefined,
     workOrder: r.workOrder ?? null,
+    driverContact: r.driverContact ?? null,
+    driverDl: r.driverDl ?? null,
   };
 }
 
@@ -486,6 +488,8 @@ export async function createTicket(input: {
   agent?: string;
   cargo?: string;
   remarks?: string;
+  driverContact?: string;
+  driverDl?: string;
   createdSource?: "entry" | "billing";
 }, tenantId?: string): Promise<{ state: YardState; ticket: Ticket | null }> {
   const DEFAULT_TENANT = tenantOf(tenantId); // scope all queries below to the caller's workspace (shadows the module default)
@@ -559,6 +563,8 @@ export async function createTicket(input: {
           status: "awaiting_billing",
           bay: pick(BAYS),
           remarks: input.remarks?.trim() || null,
+          driverContact: input.driverContact?.trim() || null,
+          driverDl: input.driverDl?.trim() || null,
           entryTime: now.toISOString(),
           loadingEnd: null,
           invoice: null,
@@ -601,7 +607,7 @@ export async function createTicket(input: {
 
 export async function updateEntryForBillingTicket(
   id: string,
-  extra: { vehicle: string; remarks?: string; agent?: string },
+  extra: { vehicle: string; remarks?: string; agent?: string; driverContact?: string; driverDl?: string },
   tenantId?: string,
 ): Promise<YardState> {
   const DEFAULT_TENANT = tenantOf(tenantId); // scope all queries below to the caller's workspace (shadows the module default)
@@ -642,6 +648,8 @@ export async function updateEntryForBillingTicket(
           createdSource: "entry",
           ...(extra.remarks ? { remarks: extra.remarks.trim() } : {}),
           ...(extra.agent ? { agent: extra.agent.trim() } : {}),
+          ...(extra.driverContact ? { driverContact: extra.driverContact.trim() } : {}),
+          ...(extra.driverDl ? { driverDl: extra.driverDl.trim() } : {}),
         },
       });
       await tx.activityEntry.create({

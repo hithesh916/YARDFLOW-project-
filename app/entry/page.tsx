@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { MapPin, Printer, Truck } from "lucide-react";
+import { MapPin, Printer, Truck, Eye, X } from "lucide-react";
 import { toast } from "sonner";
 import { Panel } from "@/components/panel";
 import { useStore } from "@/lib/store";
@@ -9,6 +9,7 @@ import { fmtDate, fmtTime, getLocalDateString } from "@/lib/format";
 import { printToken } from "@/lib/print-token";
 import { ChevronDown, ChevronUp } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
+import type { Ticket, SystemSettings } from "@/lib/types";
 
 export default function EntryPage() {
   const tickets = useStore((s) => s.tickets);
@@ -21,9 +22,13 @@ export default function EntryPage() {
   const [vehicle, setVehicle] = useState("");
   const [boe, setBoe] = useState("");
   const [agent, setAgent] = useState("");
+  const [driverContact, setDriverContact] = useState("");
+  const [driverDl, setDriverDl] = useState("");
   const [remarks, setRemarks] = useState("");
   const [busy, setBusy] = useState(false);
   const [entriesExpanded, setEntriesExpanded] = useState(false);
+  // Ticket shown in the token-preview popup (Preview button on a recent entry).
+  const [previewTicket, setPreviewTicket] = useState<Ticket | null>(null);
   // Cross-gate: BOE pre-filled from billing-gate record
   const [prefillBoe, setPrefillBoe] = useState<string | null>(null);
   // The matched ticket we last auto-filled from — so a background poll can't re-fill
@@ -96,6 +101,8 @@ export default function EntryPage() {
     const b = boe.trim().toUpperCase();
     const a = agent.trim().replace(/[<>]/g, "").slice(0, 80);
     const r = remarks.trim().replace(/[<>]/g, "").slice(0, 500);
+    const dc = driverContact.trim().replace(/[<>]/g, "").slice(0, 20);
+    const dl = driverDl.trim().replace(/[<>]/g, "").slice(0, 30).toUpperCase();
 
     if (!/^[A-Z0-9][A-Z0-9 -]{2,14}$/.test(v)) {
       toast.error("Enter a valid vehicle number (3–15 letters, digits, spaces or hyphens).");
@@ -141,8 +148,10 @@ export default function EntryPage() {
           vehicle: v,
           agent: a || "Unassigned",
           remarks: r,
+          driverContact: dc,
+          driverDl: dl,
         });
-        
+
         setBusy(false);
         if (ok) {
           const updatedTicket = useStore.getState().tickets.find((t) => t.id === matched.id);
@@ -153,6 +162,8 @@ export default function EntryPage() {
           setVehicle("");
           setBoe("");
           setAgent("");
+          setDriverContact("");
+          setDriverDl("");
           setRemarks("");
           setPrefillBoe(null);
         }
@@ -165,6 +176,8 @@ export default function EntryPage() {
       boe: b,
       agent: a || "Unassigned",
       remarks: r,
+      driverContact: dc,
+      driverDl: dl,
     });
     setBusy(false);
     if (created) {
@@ -172,6 +185,8 @@ export default function EntryPage() {
       setVehicle("");
       setBoe("");
       setAgent("");
+      setDriverContact("");
+      setDriverDl("");
       setRemarks("");
       setPrefillBoe(null);
     }
@@ -230,6 +245,31 @@ export default function EntryPage() {
               onChange={(e) => setAgent(e.target.value)}
               placeholder="Global Logistics"
               className="w-full rounded-lg border border-input bg-slate-50 dark:bg-black px-3.5 py-3 text-sm outline-none focus:ring-2 focus:ring-ring"
+            />
+          </div>
+        </div>
+        <div className="mb-5 grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div>
+            <label className="mb-2 block text-[13px] font-bold text-slate-700">
+              Driver Contact No (Optional)
+            </label>
+            <input
+              value={driverContact}
+              onChange={(e) => setDriverContact(e.target.value)}
+              placeholder="98765 43210"
+              inputMode="tel"
+              className="w-full rounded-lg border border-input bg-slate-50 dark:bg-black px-3.5 py-3 text-sm outline-none focus:ring-2 focus:ring-ring"
+            />
+          </div>
+          <div>
+            <label className="mb-2 block text-[13px] font-bold text-slate-700">
+              Driver DL No (Optional)
+            </label>
+            <input
+              value={driverDl}
+              onChange={(e) => setDriverDl(e.target.value.toUpperCase())}
+              placeholder="TN01 20230001234"
+              className="w-full rounded-lg border border-input bg-slate-50 dark:bg-black px-3.5 py-3 text-sm uppercase placeholder:normal-case outline-none focus:ring-2 focus:ring-ring"
             />
           </div>
         </div>
@@ -297,6 +337,8 @@ export default function EntryPage() {
             <TokenRow k="VEHICLE:" v={vehicle || lastToken?.vehicle || "—"} />
             <TokenRow k="BOE:" v={boe || lastToken?.boe || "—"} />
             <TokenRow k="CHA / AGENT:" v={agent || lastToken?.agent || "—"} />
+            <TokenRow k="DRIVER CONTACT:" v={driverContact || lastToken?.driverContact || "—"} />
+            <TokenRow k="DRIVER DL:" v={driverDl || lastToken?.driverDl || "—"} />
             <TokenRow
               k="TIME:"
               v={vehicle || boe ? fmtTime(new Date().toISOString()) : (lastToken ? fmtTime(lastToken.entryTime) : "—")}
@@ -374,6 +416,12 @@ export default function EntryPage() {
                       </span>
                     </div>
                     <button
+                      onClick={() => setPreviewTicket(t)}
+                      className="flex items-center gap-1 rounded border border-slate-200 bg-white px-2.5 py-1 text-[10px] font-bold text-slate-700 shadow-sm hover:bg-slate-50 active:scale-95 transition-all cursor-pointer"
+                    >
+                      <Eye size={10} /> PREVIEW
+                    </button>
+                    <button
                       onClick={() => printToken(t)}
                       className="flex items-center gap-1 rounded bg-slate-900 px-2.5 py-1 text-[10px] font-bold text-white shadow-sm hover:bg-slate-850 active:scale-95 transition-all cursor-pointer"
                     >
@@ -392,6 +440,52 @@ export default function EntryPage() {
           )}
         </motion.div>
       </div>
+
+      {/* Token preview popup — mirrors the printed gate token */}
+      {previewTicket && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-sm"
+          onClick={() => setPreviewTicket(null)}
+        >
+          <motion.div
+            initial={{ opacity: 0, scale: 0.96, y: 8 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            transition={{ duration: 0.15 }}
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-[360px] rounded-2xl bg-slate-50 p-5 shadow-2xl"
+          >
+            <div className="mb-3 flex items-center justify-between">
+              <p className="text-[11px] font-extrabold tracking-[0.08em] text-slate-500">
+                TOKEN PREVIEW
+              </p>
+              <button
+                onClick={() => setPreviewTicket(null)}
+                className="flex h-7 w-7 items-center justify-center rounded-md text-slate-400 hover:bg-slate-200 hover:text-slate-700 cursor-pointer active:scale-95 transition-all"
+                aria-label="Close preview"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <TokenSlip ticket={previewTicket} settings={settings} />
+
+            <div className="mt-4 flex gap-2">
+              <button
+                onClick={() => setPreviewTicket(null)}
+                className="flex-1 rounded-lg border border-slate-200 bg-white py-2.5 text-[13px] font-bold text-slate-600 hover:bg-slate-100 active:scale-95 transition-all cursor-pointer"
+              >
+                Close
+              </button>
+              <button
+                onClick={() => printToken(previewTicket)}
+                className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-slate-900 py-2.5 text-[13px] font-bold text-white hover:bg-slate-800 active:scale-95 transition-all cursor-pointer"
+              >
+                <Printer size={15} /> Print Token
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
     </div>
   );
 }
@@ -401,6 +495,59 @@ function TokenRow({ k, v }: { k: string; v: string }) {
     <div className="flex justify-between">
       <span className="text-slate-400">{k}</span>
       <span className="font-bold">{v}</span>
+    </div>
+  );
+}
+
+/**
+ * On-screen rendering of a gate entry token for a concrete ticket — the same
+ * layout and fields as the printed slip (lib/print-token.ts → printToken) and
+ * the Live Token Preview panel, so the popup matches what will print.
+ */
+function TokenSlip({ ticket, settings }: { ticket: Ticket; settings: SystemSettings }) {
+  const entry = new Date(ticket.entryTime);
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white p-6 text-center">
+      <div className="mb-3 rounded bg-blue-50 py-1.5 px-3 text-xs font-black tracking-[0.05em] text-blue-700 uppercase">
+        TOKEN NO: G-{String(ticket.serial).padStart(3, "0")}
+      </div>
+      <p className="font-extrabold leading-tight text-slate-900 uppercase">
+        {settings?.companyName ? settings.companyName : "YARDFLOW MANAGER"}
+      </p>
+      {settings?.terminalName && (
+        <p className="mt-0.5 text-[10px] text-slate-500 uppercase font-bold">
+          {settings.terminalName}
+        </p>
+      )}
+      {settings?.companyAddress && (
+        <p className="mt-1 text-[9px] text-slate-400 whitespace-pre-line">
+          {settings.companyAddress}
+        </p>
+      )}
+      {settings?.companyContact && (
+        <p className="mt-0.5 text-[9px] text-slate-400">
+          Contact: {settings.companyContact}
+        </p>
+      )}
+      {settings?.companyGst && (
+        <p className="mb-4 mt-0.5 text-[9px] text-slate-400 font-bold">
+          GST: {settings.companyGst}
+        </p>
+      )}
+      {!settings?.companyGst && <div className="mb-4" />}
+      <div className="my-3 border-t border-dashed border-slate-200" />
+      <div className="mb-4 flex flex-col gap-1.5 text-left text-xs">
+        <TokenRow k="VEHICLE:" v={ticket.vehicle || "—"} />
+        <TokenRow k="BOE:" v={ticket.boe || "—"} />
+        <TokenRow k="CHA / AGENT:" v={ticket.agent || "—"} />
+        <TokenRow k="DRIVER CONTACT:" v={ticket.driverContact || "—"} />
+        <TokenRow k="DRIVER DL:" v={ticket.driverDl || "—"} />
+        <TokenRow k="TIME:" v={fmtTime(entry, settings?.timezone)} />
+        <TokenRow k="DATE:" v={fmtDate(entry, settings?.timezone)} />
+      </div>
+      <p className="mt-4 text-[10px] font-extrabold tracking-[0.05em] text-slate-400">
+        VALID FOR TODAY ONLY
+      </p>
     </div>
   );
 }

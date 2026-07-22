@@ -33,6 +33,8 @@ export async function POST(req: Request) {
       agent: str(body.agent, 120),
       cargo: str(body.cargo, 120),
       remarks: str(body.remarks, 500),
+      driverContact: str(body.driverContact, 20),
+      driverDl: str(body.driverDl, 30),
       createdSource,
     }, tenantId);
     return NextResponse.json({ state, ticket });

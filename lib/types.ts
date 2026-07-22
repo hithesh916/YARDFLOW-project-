@@ -35,6 +35,8 @@ export interface Ticket {
   manualGateToken?: string | null;
   manualBillingToken?: string | null;
   workOrder?: string | null;
+  driverContact?: string | null;
+  driverDl?: string | null;
 }
 
 export interface Alert {
