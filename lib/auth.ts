@@ -74,11 +74,14 @@ export interface Session {
 function secret(): string {
   const s = process.env.SESSION_SECRET;
   if (s && s.length >= 16) return s;
-  // Dev fallback so `npm run dev` works without setup; NEVER used in prod because
-  // Vercel deploys must set SESSION_SECRET (see .env / project env).
-  if (process.env.VERCEL) {
-    throw new Error("SESSION_SECRET is not set in the production environment.");
+  // Fail closed in ANY production build (Vercel, cPanel, self-hosted, …). Keying this
+  // on NODE_ENV — not VERCEL — means a non-Vercel deploy without a real SESSION_SECRET
+  // refuses to start rather than silently signing every session with a public constant
+  // (which would let anyone forge a superadmin cookie).
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("SESSION_SECRET is not set (or is too short) in the production environment.");
   }
+  // Dev-only fallback so `npm run dev` works without setup.
   return "yardflow-dev-insecure-secret-change-me";
 }
 

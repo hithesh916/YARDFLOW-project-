@@ -36,7 +36,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { filterBySearch, useStore } from "@/lib/store";
-import { fmtClock, fmtDate, pad } from "@/lib/format";
+import { fmtClock, fmtDate, pad, getLocalDateString } from "@/lib/format";
 import { STATUS_LABELS, type Ticket, type TicketStatus } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { Login } from "@/components/login";
@@ -195,7 +195,8 @@ export function AppShell({
   const stopPolling = useStore((s) => s.stopPolling);
   const alerts = useStore((s) => s.alerts);
   const tenants = useStore((s) => s.tenants);
-  
+  const settings = useStore((s) => s.settings);
+
   const currentUser = useStore((s) => s.currentUser);
   const logout = useStore((s) => s.logout);
   const viewTenantId = useStore((s) => s.viewTenantId);
@@ -215,7 +216,9 @@ export function AppShell({
   // the expiry date having passed) is locked out of the whole portal — their data is
   // untouched in the database and access returns the moment the super-admin renews.
   // Super-admin (no tenantId) and the built-in demo accounts are never gated.
-  const todayStr = new Date().toLocaleDateString("en-CA"); // YYYY-MM-DD
+  // Compare against the tenant's business day (not the browser's tz) so the portal
+  // locks/unlocks on the same day boundary the server uses everywhere else.
+  const todayStr = getLocalDateString(new Date(), settings?.timezone);
   const licenseBlocked =
     !!currentTenant &&
     currentUser?.role !== "superadmin" &&
@@ -297,7 +300,6 @@ export function AppShell({
     }
   }, [ready, currentUser, pathname, router, hasRedirected, viewTenantId]);
 
-  const settings = useStore((s) => s.settings);
   const terminalName = settings?.terminalName || "";
 
   const title = TITLES[pathname] ?? "YARDFLOW";
@@ -618,8 +620,13 @@ export function AppShell({
                                     </span>
                                   ))}
                                 </div>
-                                <div className="mt-0.5 truncate text-[11px] text-slate-400">
-                                  BOE: {t.boe || "—"}
+                                <div className="mt-0.5 flex items-center gap-1.5 truncate text-[11px] text-slate-400">
+                                  <span className="truncate">BOE: {t.boe || "—"}</span>
+                                  {t.boeVisit ? (
+                                    <span className="shrink-0 rounded bg-slate-100 px-1 py-0.5 text-[9px] font-bold text-slate-500">
+                                      Trip {t.boeVisit}
+                                    </span>
+                                  ) : null}
                                 </div>
                               </div>
                               <div className="flex shrink-0 items-center gap-1.5">

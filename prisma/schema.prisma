@@ -109,6 +109,7 @@ model Ticket {
   workOrder          String?
   driverContact      String?
   driverDl           String?
+  boeVisit           Int?
   createdAt          DateTime     @default(now())
 
   @@index([tenantId])

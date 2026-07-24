@@ -1,10 +1,16 @@
 import { NextResponse } from "next/server";
 import { updateRolePermissions } from "@/lib/db";
-import { requireAdmin } from "@/lib/api-auth";
+import { requireSuperadmin } from "@/lib/api-auth";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
   try {
-    const s = requireAdmin(req);
+    // The RolePermission table is platform-GLOBAL (keyed by role, shared by every
+    // tenant), so only the platform owner may edit it. Previously any tenant admin
+    // could rewrite it and change every other tenant's nav grid.
+    const s = requireSuperadmin(req);
     if (s instanceof NextResponse) return s;
     const callerTenant = s.tenantId ?? undefined;
     const body = await req.json();

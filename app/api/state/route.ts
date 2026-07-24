@@ -22,6 +22,11 @@ export async function GET(req: Request) {
   const target =
     requested && isSuperadmin(s) ? requested : (s.tenantId ?? undefined);
 
-  const state = await getState(target, { superadmin: isSuperadmin(s) });
-  return NextResponse.json(state);
+  try {
+    const state = await getState(target, { superadmin: isSuperadmin(s) });
+    return NextResponse.json(state);
+  } catch (e) {
+    console.error("getState failed:", e);
+    return NextResponse.json({ error: "Could not load state." }, { status: 500 });
+  }
 }

@@ -37,6 +37,7 @@ export interface Ticket {
   workOrder?: string | null;
   driverContact?: string | null;
   driverDl?: string | null;
+  boeVisit?: number | null;   // 1-based visit index for this BOE on this business day
 }
 
 export interface Alert {

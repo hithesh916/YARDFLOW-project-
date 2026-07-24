@@ -257,6 +257,7 @@ ${THERMAL_CSS}
     <div class="rows">
       ${row("VEHICLE", ticket.vehicle)}
       ${row("BOE", ticket.boe)}
+      ${ticket.boeVisit ? row("TRIP (BOE)", `#${ticket.boeVisit}`) : ""}
       ${row("CHA / AGENT", ticket.agent)}
       ${row("DRIVER CONTACT", ticket.driverContact || "—")}
       ${row("DRIVER DL", ticket.driverDl || "—")}
@@ -432,6 +433,7 @@ ${THERMAL_CSS}
     <div class="divider"></div>
     <div class="rows">
       ${row("BOE", ticket.boe)}
+      ${ticket.boeVisit ? row("TRIP (BOE)", `#${ticket.boeVisit}`) : ""}
       ${row("CHA / AGENT", ticket.agent)}
       ${row("INVOICE NO", ticket.invoice || "N/A")}
       ${row("BILLING TIME", fmtTime(new Date(), settings?.timezone))}
@@ -613,6 +615,8 @@ ${THERMAL_CSS}
     <div class="divider"></div>
     <div class="rows">
       ${row("WORK ORDER NO", ticket.workOrder || "N/A")}
+      ${row("BOE", ticket.boe)}
+      ${ticket.boeVisit ? row("TRIP (BOE)", `#${ticket.boeVisit}`) : ""}
       ${row("BILLING TOKEN NO", ticket.manualBillingToken || `B-${String(ticket.billingSerial ?? ticket.serial).padStart(3, "0")}`)}
       ${row("GATE TOKEN NO", ticket.createdSource === "billing" ? "N/A" : (ticket.manualGateToken || `G-${String(ticket.serial).padStart(3, "0")}`))}
       ${row("VEHICLE NO", ticket.createdSource === "billing" ? "N/A" : ticket.vehicle)}
@@ -621,7 +625,7 @@ ${THERMAL_CSS}
       ${row("COMPLETED DATE", fmtDate(loadingTime, settings?.timezone))}
     </div>
     <div class="divider"></div>
-    
+
     <div class="qr-code-section">
       <img src="${qr}" alt="Scan pass at exit" />
     </div>
@@ -671,7 +675,7 @@ export async function printLoadingTokens(tickets: Ticket[], targetWindow?: Windo
         </div>
         <div class="token-badge">
           <div class="lbl">LOADING TOKEN</div>
-          <div class="val">L-${String(ticket.billingSerial ?? ticket.serial).padStart(3, "0")}</div>
+          <div class="val">L-${String(ticket.loadingSerial ?? ticket.serial).padStart(3, "0")}</div>
         </div>
         <div class="eyebrow">Loading Dispatch Pass</div>
         <div class="divider"></div>
@@ -734,119 +738,14 @@ ${THERMAL_CSS}
   writePrintDocument(html, targetWindow);
 }
 
-/**
- * Prints a combined loading pass for multiple tickets (single BOE) as one bill.
- */
-export async function printCombinedLoadingToken(tickets: Ticket[], targetWindow?: Window): Promise<void> {
-  if (!tickets || tickets.length === 0) return;
-
-  const settings = useStore.getState().settings;
-
-  // Aggregate data for header
-  const commonBoe = tickets[0].boe || "";
-  const agents = Array.from(new Set(tickets.map((t) => (t.agent || t.billingAgent || "Unassigned").trim()).filter(Boolean)));
-  const gateTokens = Array.from(new Set(tickets.map((t) => t.manualGateToken || `G-${String(t.serial).padStart(3, "0")}`)));
-  const billingTokens = Array.from(new Set(tickets.map((t) => t.manualBillingToken || (t.status === "awaiting_billing" ? "B-PENDING" : `B-${String(t.billingSerial ?? t.serial).padStart(3, "0")}`))));
-
-  const combinedQr = await QRCode.toDataURL(commonBoe, {
-    width: 240,
-    margin: 0,
-    color: { dark: "#000000", light: "#ffffff" },
-  });
-
-  const rowsHtml = tickets
-    .map((t) => {
-      const g = t.createdSource === "billing" ? "N/A" : (t.manualGateToken || `G-${String(t.serial).padStart(3, "0")}`);
-      const b = t.manualBillingToken || (t.status === "awaiting_billing" ? "B-PENDING" : `B-${String(t.billingSerial ?? t.serial).padStart(3, "0")}`);
-      const invoice = t.invoice || "N/A";
-      const completedTime = t.loadingEnd ? fmtTime(new Date(t.loadingEnd), settings?.timezone) : fmtTime(new Date(), settings?.timezone);
-      const completedDate = t.loadingEnd ? fmtDate(new Date(t.loadingEnd), settings?.timezone) : fmtDate(new Date(), settings?.timezone);
-      const agentName = t.loadingAgent || t.billingAgent || t.agent || "Unassigned";
-
-      return `
-      <div class="ticket-row">
-        <div class="info">
-          <div class="veh">${escapeHtml(t.vehicle)}</div>
-          <div class="fields">
-            <div><span class="lbl">WORK ORDER NO</span><span class="val">${escapeHtml(t.workOrder || "N/A")}</span></div>
-            <div><span class="lbl">BILLING TOKEN NO</span><span class="val">${escapeHtml(b)}</span></div>
-            <div><span class="lbl">GATE TOKEN NO</span><span class="val">${escapeHtml(g)}</span></div>
-            <div><span class="lbl">VEHICLE NO</span><span class="val">${escapeHtml(t.createdSource === "billing" ? "N/A" : t.vehicle)}</span></div>
-            <div><span class="lbl">REMARKS</span><span class="val">${escapeHtml(t.loadingRemarks || "—")}</span></div>
-            <div><span class="lbl">COMPLETED TIME</span><span class="val">${escapeHtml(completedTime)}</span></div>
-            <div><span class="lbl">COMPLETED DATE</span><span class="val">${escapeHtml(completedDate)}</span></div>
-          </div>
-        </div>
-      </div>`;
-    })
-    .join("\n");
-
-  const agentsHtml = agents.map((a) => `<div class="agent-item">${escapeHtml(a)}</div>`).join("\n");
-  const gateHtml = gateTokens.map((g) => `<span class="token">${escapeHtml(g)}</span>`).join(" ");
-  const billingHtml = billingTokens.map((b) => `<span class="token">${escapeHtml(b)}</span>`).join(" ");
-
-  const html = `<!doctype html>
-<html>
-<head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
-<title>YARDFLOW Combined Loading Pass</title>
-<style>
-${THERMAL_CSS}
-  .brand{text-align:center;margin-bottom:6px}
-  .name{font-weight:850;font-size:16px;margin:0}
-  .boe{font-size:11px;color:#333;margin-top:4px}
-  .eyebrow{font-size:11px;font-weight:800;background:#000;color:#fff;padding:6px;border-radius:4px;text-align:center;margin:8px 0}
-  .summary{font-size:11px;margin:6px 0 10px}
-  .summary .label{font-weight:700;margin-right:6px}
-  .tokens-row{margin-top:6px}
-  .token{display:inline-block;background:#f3f4f6;padding:4px 8px;border-radius:6px;margin-right:6px;font-weight:700}
-  .agents{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
-  .rows{display:flex;flex-direction:column;gap:10px;margin-top:8px}
-  .ticket-row{display:flex;gap:8px;padding:8px;border:1px dashed #000;border-radius:6px;align-items:flex-start}
-  .qr img{width:72px;height:72px;border:1px solid #000;padding:3px}
-  .info{flex:1}
-  .veh{font-weight:900;font-size:13px;margin-bottom:6px}
-  .fields{display:flex;flex-direction:column;gap:4px}
-  .fields .lbl{display:inline-block;width:120px;font-weight:700;font-size:11px;color:#111}
-  .fields .val{display:inline-block;font-weight:800;font-size:11px;color:#111;margin-left:6px}
-  .foot{text-align:center;font-size:9px;margin-top:10px;color:#333}
-</style>
-</head>
-<body>
-  <div class="ticket">
-    <div class="brand">
-      <p class="name">${settings?.companyName ? escapeHtml(settings.companyName) : "YARDFLOW MANAGER"}</p>
-      ${settings?.companyContact ? `<div class="boe" style="font-size:9px;margin-top:2px">Contact: ${escapeHtml(settings.companyContact)}</div>` : ""}
-      ${commonBoe ? `<div class="boe">WORK ORDER NO: ${escapeHtml(commonBoe)}</div>` : ""}
-    </div>
-    <div class="eyebrow">COMBINED LOADING PASS</div>
-    <div class="qr-top"><img src="${combinedQr}" alt="Combined QR" /></div>
-    <div class="summary">
-      <div><span class="label">CHA / AGENTS:</span><span class="agents">${agentsHtml}</span></div>
-      <div class="tokens-row"><span class="label">GATE TOKEN NO(s):</span>${gateHtml}</div>
-      <div class="tokens-row"><span class="label">BILLING TOKEN NO(s):</span>${billingHtml}</div>
-    </div>
-
-    <div class="rows">
-      ${rowsHtml}
-    </div>
-
-    <div class="foot">Present this slip and scan QR at Exit. Product by Cubiqlab Technologies</div>
-  </div>
-  <script>window.onload=function(){setTimeout(()=>{window.focus();window.print()},120)};window.onafterprint=function(){if(window.frameElement)window.frameElement.remove()};</script>
-</body>
-</html>`;
-
-  writePrintDocument(html, targetWindow);
-}
 
 function escapeHtml(s: string): string {
-  return s
+  return String(s)
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 // settings.logoUrl is operator-settable via /api/settings and flows into printed HTML.

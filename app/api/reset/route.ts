@@ -10,6 +10,11 @@ export const dynamic = "force-dynamic";
 export async function POST(req: Request) {
   const s = requireSuperadmin(req);
   if (s instanceof NextResponse) return s;
-  const state = await reset(s.tenantId ?? undefined);
-  return NextResponse.json({ state });
+  try {
+    const state = await reset(s.tenantId ?? undefined);
+    return NextResponse.json({ state });
+  } catch (e) {
+    console.error("reset failed:", e);
+    return NextResponse.json({ error: "Could not reset the workspace." }, { status: 500 });
+  }
 }

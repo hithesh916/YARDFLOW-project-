@@ -1,35 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-
-function useSessionStorage<T>(key: string, initialValue: T) {
-  const [state, setState] = useState<T>(() => {
-    if (typeof window !== "undefined") {
-      try {
-        const saved = window.sessionStorage.getItem(key);
-        if (saved !== null) {
-          return JSON.parse(saved);
-        }
-      } catch (err) {
-        console.warn("Failed to read from sessionStorage", err);
-      }
-    }
-    return initialValue;
-  });
-
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      try {
-        window.sessionStorage.setItem(key, JSON.stringify(state));
-      } catch (err) {
-        console.warn("Failed to write to sessionStorage", err);
-      }
-    }
-  }, [key, state]);
-
-  return [state, setState] as const;
-}
-
+import { useSessionStorage } from "@/lib/use-session-storage";
 import {
   Users,
   Plus,

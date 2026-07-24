@@ -33,6 +33,8 @@ export default function ExitPage() {
   const setExitSelected = useStore((s) => s.setExitSelected);
   const ticketAction = useStore((s) => s.ticketAction);
   const settings = useStore((s) => s.settings);
+  const viewTenantId = useStore((s) => s.viewTenantId);
+  const currentUser = useStore((s) => s.currentUser);
 
   const [manualId, setManualId] = useState("");
   const [holdReason, setHoldReason] = useState("");
@@ -54,10 +56,13 @@ export default function ExitPage() {
   const fullExitQueue = tickets.filter((t) => t.status === "awaiting_exit");
   const queue = filterBySearch(fullExitQueue, search);
 
-  const selectedId =
-    exitSelectedId && fullExitQueue.some((t) => t.id === exitSelectedId)
-      ? exitSelectedId
-      : (queue[0]?.id ?? null);
+  // If the operator has EXPLICITLY selected a vehicle that then disappears from the
+  // queue (e.g. another terminal exits it), fall back to the empty state — NOT to
+  // queue[0]. Auto-jumping the focus panel to a different truck risks permitting the
+  // wrong vehicle. A default preview of queue[0] only applies when nothing is selected.
+  const selectedId = exitSelectedId
+    ? (fullExitQueue.some((t) => t.id === exitSelectedId) ? exitSelectedId : null)
+    : (queue[0]?.id ?? null);
   const selected = fullExitQueue.find((t) => t.id === selectedId) ?? null;
 
   const recentExits = [...tickets]
@@ -124,9 +129,16 @@ export default function ExitPage() {
     const cached = matchInList(fullExitQueue, trimmed);
     if (cached) return cached;
 
-    // 2. Hit the server for fresh state (handles stale cache)
+    // 2. Hit the server for fresh state (handles stale cache). Use the SAME scoped URL
+    // the poller uses: while a superadmin is viewing a client, this must fetch that
+    // tenant's tickets — not the superadmin's own scope — or it would overwrite the
+    // viewed workspace's data in the store.
+    const stateUrl =
+      viewTenantId && currentUser?.role === "superadmin"
+        ? `/api/state?tenantId=${encodeURIComponent(viewTenantId)}`
+        : "/api/state";
     try {
-      const res = await fetch("/api/state", { cache: "no-store" });
+      const res = await fetch(stateUrl, { cache: "no-store" });
       if (!res.ok) return null;
       const freshState = await res.json();
       const freshQueue = (freshState.tickets || []).filter(

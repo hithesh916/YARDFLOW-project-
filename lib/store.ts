@@ -7,12 +7,14 @@ import type {
   Alert,
   SystemSettings,
   Ticket,
+  TicketStatus,
   YardState,
   TenantClient,
   OperatorAccount,
   RolePermission,
 } from "./types";
 import { type OperatorUser } from "./users";
+import { getLocalDateString } from "./format";
 
 interface Store {
   // server-backed state
@@ -478,11 +480,20 @@ export const useStore = create<Store>((set, get) => ({
             if (freshOp) {
               const freshPerm = state.permissions.find((p) => p.role === freshOp.role);
               const allowedPaths = (freshPerm ? freshPerm.allowedPaths : currentSession.allowedPaths).filter((p) => p !== "/superadmin");
-              nextSession = {
-                ...currentSession,
-                allowedPaths,
-                tenantId: freshOp.tenantId,
-              };
+              // Only build a NEW session object when something actually changed — otherwise
+              // every 10s poll hands the shell a fresh reference, re-running the redirect
+              // effect and re-rendering the whole app for nothing.
+              const changed =
+                freshOp.tenantId !== currentSession.tenantId ||
+                allowedPaths.length !== currentSession.allowedPaths.length ||
+                allowedPaths.some((p, i) => p !== currentSession.allowedPaths[i]);
+              if (changed) {
+                nextSession = {
+                  ...currentSession,
+                  allowedPaths,
+                  tenantId: freshOp.tenantId,
+                };
+              }
             }
             // If not found in this workspace snapshot, leave the session as-is;
             // /api/state 401 (above) is the authority on expiry, not this list.
@@ -525,7 +536,9 @@ export const useStore = create<Store>((set, get) => ({
 function tokenStrings(t: Ticket): string[] {
   const out: string[] = [];
   const add = (prefix: string, n?: number | null) => {
-    if (n === undefined || n === null) return;
+    // Skip 0/absent: billing-desk tickets carry serial 0 (no gate number yet), and
+    // emitting bare "0"/"000" would make a search for "0" match every such ticket.
+    if (n === undefined || n === null || n <= 0) return;
     const padded = String(n).padStart(3, "0");
     out.push(`${prefix}-${padded}`, `${prefix}-${n}`, padded, String(n));
   };
@@ -533,6 +546,36 @@ function tokenStrings(t: Ticket): string[] {
   add("b", t.billingSerial);
   add("l", t.loadingSerial);
   return out;
+}
+
+/**
+ * Today's tickets sharing a BOE, in trip order — the safe way to resolve a BOE to
+ * vehicle(s). A BOE is a one-to-many, recurring key (many vehicles per day, and it
+ * repeats on later days), so this is day-scoped to the tenant timezone: a same-BOE
+ * ticket left over from a prior day never bleeds into today's billing/loading lookups.
+ * By default excludes exited/held; pass `statuses` to narrow (e.g. ["awaiting_billing"]).
+ */
+export function activeVisitsForBoe(
+  tickets: Ticket[],
+  boe: string,
+  tz: string,
+  opts?: { statuses?: TicketStatus[]; today?: string },
+): Ticket[] {
+  const b = boe.trim().toUpperCase();
+  if (!b) return [];
+  const today = opts?.today ?? getLocalDateString(new Date(), tz);
+  return tickets
+    .filter((t) => t.boe.trim().toUpperCase() === b)
+    .filter((t) => getLocalDateString(t.entryTime, tz) === today)
+    .filter((t) =>
+      opts?.statuses
+        ? opts.statuses.includes(t.status)
+        : t.status !== "exited" && t.status !== "held",
+    )
+    .sort(
+      (a, c) =>
+        (a.boeVisit ?? 0) - (c.boeVisit ?? 0) || a.entryTime.localeCompare(c.entryTime),
+    );
 }
 
 /** Case-insensitive filter across vehicle / BOE / token no (G-, B-, L-). */

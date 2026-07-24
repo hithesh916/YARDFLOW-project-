@@ -5,7 +5,7 @@ import { CheckCircle2, ReceiptText, Printer, MapPin } from "lucide-react";
 import { toast } from "sonner";
 import { Panel } from "@/components/panel";
 import { Pill } from "@/components/pill";
-import { filterBySearch, useStore } from "@/lib/store";
+import { activeVisitsForBoe, filterBySearch, useStore } from "@/lib/store";
 import { fmtTime, fmtDate, pad, getLocalDateString } from "@/lib/format";
 import { printBillingToken } from "@/lib/print-token";
 import type { Ticket } from "@/lib/types";
@@ -41,6 +41,11 @@ export default function BillingPage() {
   const [matchedTicket, setMatchedTicket] = useState<Ticket | null>(null);
   // Cross-gate: vehicle pre-filled from entry gate record
   const [prefillVehicle, setPrefillVehicle] = useState<string | null>(null);
+  // When several vehicles share this BOE today, the operator must pick one (a BOE is a
+  // one-to-many key) — these are the candidates shown in the chooser.
+  const [boeChoices, setBoeChoices] = useState<Ticket[]>([]);
+  // The specific ticket id the operator picked from the chooser (survives polls).
+  const chosenIdRef = useRef<string>("");
   // The BOE we last auto-filled agent/remarks for — so a background poll can't re-fill.
   const lastFilledBoeRef = useRef<string>("");
 
@@ -52,28 +57,26 @@ export default function BillingPage() {
       setPrefillVehicle(null);
       setAgentOptions([]);
       setShowAgentOptions(false);
+      setBoeChoices([]);
+      chosenIdRef.current = "";
       lastFilledBoeRef.current = "";
       return;
     }
 
-    // Search ALL active tickets matching the typed BOE (regardless of status)
-    const allMatches = tickets.filter(
-      (t) =>
-        t.boe.toUpperCase() === b &&
-        t.status !== "exited" &&
-        t.status !== "held"
-    );
+    // Today's active tickets for this BOE (day-scoped: a same-BOE ticket left over from a
+    // prior day never bleeds in). BOE is one-to-many, so this can be several vehicles.
+    const allMatches = activeVisitsForBoe(tickets, b, tz);
 
     if (allMatches.length === 0) {
       setMatchedTicket(null);
       setPrefillVehicle(null);
       setAgentOptions([]);
+      setBoeChoices([]);
       return;
     }
 
     // Prefer tickets awaiting_billing (directly actionable)
     const billingMatches = allMatches.filter((t) => t.status === "awaiting_billing");
-    const matched = billingMatches[0] ?? allMatches[0];
 
     // Set agent options for multi-match dropdown
     const uniqueAgents = Array.from(
@@ -81,6 +84,18 @@ export default function BillingPage() {
     );
     setAgentOptions(uniqueAgents);
     if (uniqueAgents.length <= 1) setShowAgentOptions(false);
+
+    // Multiple vehicles await billing under this BOE today → make the operator pick one
+    // instead of silently billing the first. Skip the prompt once a choice is locked in.
+    const chosen = billingMatches.find((t) => t.id === chosenIdRef.current);
+    if (billingMatches.length > 1 && !chosen) {
+      setBoeChoices(billingMatches);
+      setMatchedTicket(null);
+      setPrefillVehicle(null);
+      return;
+    }
+    setBoeChoices([]);
+    const matched = chosen ?? billingMatches[0] ?? allMatches[0];
 
     // Fill the operator-editable fields ONLY when the BOE itself changed (a user
     // action) — never on a background tickets poll, which would otherwise snap the
@@ -109,9 +124,12 @@ export default function BillingPage() {
   const recentBilled = [...tickets]
     .filter((t) =>
       (t.invoice !== null && t.invoice !== undefined)
-      && getLocalDateString(t.entryTime, tz) === todayStr
+      // Scope by the BILLING timestamp (not entryTime): a vehicle entered late and billed
+      // after midnight still belongs to today's billed list. Fall back to entryTime for
+      // any legacy row that predates billingTime.
+      && getLocalDateString(t.billingTime || t.entryTime, tz) === todayStr
     )
-    .sort((a, b) => b.entryTime.localeCompare(a.entryTime));
+    .sort((a, b) => (b.billingTime || b.entryTime).localeCompare(a.billingTime || a.entryTime));
 
   function selectFromQueue(t: Ticket) {
     setBoe(t.boe);
@@ -119,7 +137,21 @@ export default function BillingPage() {
     setRemarks(t.remarks ?? "");
     setMatchedTicket(t);
     setPrefillVehicle(t.vehicle || null);
+    chosenIdRef.current = t.id;
+    lastFilledBoeRef.current = t.boe.trim().toUpperCase();
+    setBoeChoices([]);
     toast.success(`Loaded details for ${t.vehicle} (${t.boe})`);
+  }
+
+  // Operator picked one vehicle from the same-BOE chooser — lock it in for billing.
+  function pickChoice(t: Ticket) {
+    setMatchedTicket(t);
+    setAgent(t.billingAgent || t.agent || "");
+    setRemarks(t.remarks ?? "");
+    setPrefillVehicle(t.createdSource === "entry" ? t.vehicle : null);
+    chosenIdRef.current = t.id;
+    lastFilledBoeRef.current = t.boe.trim().toUpperCase();
+    setBoeChoices([]);
   }
 
   async function confirm() {
@@ -132,13 +164,19 @@ export default function BillingPage() {
       return;
     }
 
+    // Force a choice when several vehicles share this BOE today.
+    if (boeChoices.length > 1 && !matchedTicket) {
+      toast.error("Select which vehicle to bill for this Work Order.");
+      return;
+    }
+
     setBusy(true);
 
     try {
-      // 1. Look up if BOE has a checked-in ticket awaiting billing
-      let target = (matchedTicket?.status === "awaiting_billing" ? matchedTicket : null) || tickets.find(
-        (t) => t.boe.toUpperCase() === b && t.status === "awaiting_billing"
-      );
+      // 1. Look up the checked-in ticket awaiting billing for this BOE (day-scoped). Prefer
+      // the operator's explicit pick; else today's single awaiting_billing match.
+      let target = (matchedTicket?.status === "awaiting_billing" ? matchedTicket : null)
+        || activeVisitsForBoe(tickets, b, tz, { statuses: ["awaiting_billing"] })[0];
 
       // 2. If no checked-in ticket exists, create a new one first
       if (!target) {
@@ -186,6 +224,9 @@ export default function BillingPage() {
         setPaymentStatus("Paid");
         setMatchedTicket(null);
         setPrefillVehicle(null);
+        setBoeChoices([]);
+        chosenIdRef.current = "";
+        lastFilledBoeRef.current = "";
         toast.success(`Billing approved (${paymentStatus}) — printing token`);
       }
     } finally {
@@ -214,6 +255,40 @@ export default function BillingPage() {
               placeholder="MAA1234567890"
               className="w-full rounded-lg border border-input bg-slate-50 dark:bg-black px-3.5 py-3 text-xl font-bold uppercase placeholder:text-slate-400 placeholder:font-normal placeholder:normal-case outline-none focus:ring-2 focus:ring-ring"
             />
+
+            {/* Multiple vehicles share this Work Order today — pick the right one */}
+            {boeChoices.length > 1 && (
+              <div className="mt-2 rounded-lg border border-amber-300 bg-amber-50 dark:border-amber-800/50 dark:bg-amber-950/20 p-2">
+                <p className="px-1 pb-1.5 text-[11px] font-bold text-amber-700 dark:text-amber-400">
+                  {boeChoices.length} vehicles on this Work Order today — select one to bill:
+                </p>
+                <div className="flex flex-col gap-1">
+                  {boeChoices.map((t) => (
+                    <button
+                      key={t.id}
+                      type="button"
+                      onClick={() => pickChoice(t)}
+                      className="flex items-center justify-between rounded-md border border-amber-200 bg-white dark:border-amber-900/40 dark:bg-slate-950 px-2.5 py-2 text-left text-xs hover:border-amber-400 hover:bg-amber-50/60 dark:hover:bg-slate-900 cursor-pointer transition-colors"
+                    >
+                      <span className="flex items-center gap-2">
+                        <span className="rounded bg-amber-100 dark:bg-amber-900/40 px-1.5 py-0.5 text-[10px] font-extrabold text-amber-700 dark:text-amber-300">
+                          Trip {t.boeVisit ?? "—"}
+                        </span>
+                        <span className="font-extrabold text-slate-800 dark:text-slate-100">
+                          {t.createdSource === "billing" ? "Billing desk" : t.vehicle}
+                        </span>
+                      </span>
+                      <span className="flex items-center gap-2 text-slate-400">
+                        {t.serial > 0 && (
+                          <span className="font-bold">G-{pad(t.serial)}</span>
+                        )}
+                        <span>{fmtTime(t.entryTime, tz)}</span>
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Vehicle No — auto-filled from Entry Gate when BOE matches an entry-gate ticket */}

@@ -14,12 +14,32 @@ export async function POST(req: Request) {
     const body = await req.json();
     const { action, name, username, passcode, role, id, tenantId, currentPasscode } = body;
 
+    // Roles a tenant Administrator may assign. `superadmin` (and `Administrator`
+    // itself) are privileged and can ONLY be minted by a superadmin — otherwise any
+    // tenant admin could POST role:"superadmin" and escalate to full platform control.
+    const ADMIN_ASSIGNABLE_ROLES = [
+      "Gate Operator",
+      "Billing Agent",
+      "Loading Operator",
+      "Security Guard",
+    ];
+
     let state;
     if (action === "create") {
       // Managing operators is an admin/superadmin action.
       if (!isAdmin(s)) return NextResponse.json({ error: "Forbidden." }, { status: 403 });
       if (!name || !username || !passcode || !role) {
         return NextResponse.json({ error: "Missing fields" }, { status: 400 });
+      }
+      if (typeof role !== "string") {
+        return NextResponse.json({ error: "Invalid role." }, { status: 400 });
+      }
+      // Enforce the role allowlist for non-superadmins. A superadmin may assign any role.
+      if (!isSuperadmin(s) && !ADMIN_ASSIGNABLE_ROLES.includes(role)) {
+        return NextResponse.json(
+          { error: "You are not allowed to assign this role." },
+          { status: 403 },
+        );
       }
       // Non-superadmins can only create within their OWN tenant — a body-supplied
       // tenantId is ignored so an admin can't plant accounts in another company.

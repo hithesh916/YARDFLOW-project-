@@ -12,7 +12,7 @@ import {
 import Link from "next/link";
 import { Panel } from "@/components/panel";
 import { Pill, type Tone } from "@/components/pill";
-import { filterBySearch, useStore } from "@/lib/store";
+import { useStore } from "@/lib/store";
 import { pad, getLocalDateString } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { Ticket } from "@/lib/types";
@@ -76,12 +76,13 @@ function Kpi({
 
 export default function DashboardPage() {
   const tickets = useStore((s) => s.tickets);
-  const search = useStore((s) => s.search);
   const alerts = useStore((s) => s.alerts);
   const ackAlert = useStore((s) => s.ackAlert);
   const settings = useStore((s) => s.settings);
 
-  const filtered = filterBySearch(tickets, search);
+  // Dashboard KPIs summarize the WHOLE yard and must NOT be affected by the global
+  // header search box (that box drives the token-lookup dropdown + queue-page lists).
+  const filtered = tickets;
   // Current-queue counts are status-based and span all days on purpose — a vehicle
   // still awaiting exit from before midnight is still in the yard.
   const currentLoading = filtered.filter(

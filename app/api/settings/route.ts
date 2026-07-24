@@ -42,6 +42,29 @@ export async function POST(req: Request) {
       );
     }
 
+    // Bound the free-text company/profile fields so a huge or non-string value can't
+    // land in the DB (or the printed token). logoUrl is separately scheme-allowlisted
+    // at print time; here we just cap its length.
+    const textFields: Array<[string, unknown, number]> = [
+      ["companyName", companyName, 120],
+      ["companyContact", companyContact, 60],
+      ["companyEmail", companyEmail, 120],
+      ["companyGst", companyGst, 30],
+      ["companyAddress", companyAddress, 500],
+      ["logoUrl", logoUrl, 300000], // data: URIs can be large
+    ];
+    for (const [label, val, max] of textFields) {
+      if (val !== undefined && val !== null && (typeof val !== "string" || val.length > max)) {
+        return NextResponse.json(
+          { error: `Invalid ${label} (must be text up to ${max} characters).` },
+          { status: 400 },
+        );
+      }
+    }
+    if (formCustomization !== undefined && formCustomization !== null && typeof formCustomization !== "object") {
+      return NextResponse.json({ error: "Invalid form customization." }, { status: 400 });
+    }
+
     const state = await updateSettings({
       ...(terminalName && { terminalName }),
       ...(maxActiveBays && { maxActiveBays: Number(maxActiveBays) }),
@@ -57,9 +80,9 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ state });
   } catch (e) {
-    return NextResponse.json(
-      { error: e instanceof Error ? e.message : "Failed to update settings" },
-      { status: 500 },
-    );
+    // Log the real error server-side; return a generic message so Prisma/internal
+    // details never reach the client (matches the other routes).
+    console.error("updateSettings failed:", e);
+    return NextResponse.json({ error: "Failed to update settings." }, { status: 500 });
   }
 }

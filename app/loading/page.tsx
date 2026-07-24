@@ -5,7 +5,7 @@ import { CheckCircle2, ClipboardCheck, Printer, Ban, ChevronDown, ChevronUp, Rec
 import { toast } from "sonner";
 import { Panel } from "@/components/panel";
 import { Pill } from "@/components/pill";
-import { filterBySearch, useStore } from "@/lib/store";
+import { activeVisitsForBoe, filterBySearch, useStore } from "@/lib/store";
 import { fmtTime, fmtDate, pad, getLocalDateString } from "@/lib/format";
 import { printLoadingToken, printLoadingTokens } from "@/lib/print-token";
 import type { Ticket } from "@/lib/types";
@@ -172,11 +172,10 @@ export default function LoadingPage() {
     let matched: Ticket | undefined = undefined;
 
     if (field === "boe") {
-      const matches = tickets.filter(
-        (t) =>
-          t.boe.toUpperCase() === cleanValue &&
-          (t.status === "awaiting_loading" || t.status === "awaiting_billing")
-      );
+      // Day-scoped: only today's active vehicles for this BOE (never a prior-day leftover).
+      const matches = activeVisitsForBoe(tickets, cleanValue, tz, {
+        statuses: ["awaiting_loading", "awaiting_billing"],
+      });
       const preferredMatches = matches.filter((t) => t.status === "awaiting_loading");
       const resolvedMatches = preferredMatches.length > 0 ? preferredMatches : matches;
       if (resolvedMatches.length > 0) {
@@ -243,8 +242,10 @@ export default function LoadingPage() {
 
   const recentDone = [...tickets]
     .filter((t) =>
+      // Scope by the LOADING timestamp (not entryTime) so a vehicle loaded after midnight
+      // still shows in today's completed list.
       t.loadingEnd &&
-      getLocalDateString(t.entryTime, tz) === todayStr
+      getLocalDateString(t.loadingEnd, tz) === todayStr
     )
     .sort((a, b) => (b.loadingEnd ?? "").localeCompare(a.loadingEnd ?? ""));
 
@@ -279,11 +280,10 @@ export default function LoadingPage() {
     if (selectedTicketIds.length > 0) {
       targetsToProcess.push(...tickets.filter((t) => selectedTicketIds.includes(t.id)));
     } else {
-      // If no explicit selection, pick the billed vehicle(s) matching the BOE.
+      // If no explicit selection, pick today's billed vehicle(s) matching the BOE
+      // (day-scoped so a prior-day same-BOE ticket is never swept into the batch).
       targetsToProcess.push(
-        ...tickets.filter(
-          (t) => t.boe.toUpperCase() === boe.trim().toUpperCase() && t.status === "awaiting_loading",
-        ),
+        ...activeVisitsForBoe(tickets, boe, tz, { statuses: ["awaiting_loading"] }),
       );
     }
 
@@ -493,7 +493,14 @@ export default function LoadingPage() {
                             className="rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
                           />
                           <div className="flex-1 flex items-center justify-between">
-                            <span className="font-extrabold">{bNum}</span>
+                            <span className="flex items-center gap-1.5 font-extrabold">
+                              {bNum}
+                              {t.boeVisit ? (
+                                <span className="rounded bg-slate-100 dark:bg-slate-800 px-1 py-0.5 text-[9px] font-bold text-slate-500 dark:text-slate-400">
+                                  Trip {t.boeVisit}
+                                </span>
+                              ) : null}
+                            </span>
                             <span className="text-[10px] text-slate-400 font-semibold truncate max-w-[150px]">
                               {t.boe} · {t.vehicle}
                             </span>
@@ -589,7 +596,7 @@ export default function LoadingPage() {
                         </div>
                       );
                     })}
-                  {tickets.filter((t) => t.status === "awaiting_loading" || t.status === "awaiting_billing").length === 0 && (
+                  {activeGateTickets.length === 0 && (
                     <p className="text-center text-xs text-slate-400 py-3">No active gate passes waiting.</p>
                   )}
                 </div>
@@ -646,7 +653,7 @@ export default function LoadingPage() {
           <div className="flex items-center justify-end gap-3 border-t border-slate-100 pt-5">
             <button
               onClick={handleSkip}
-              disabled={!matchedTicket || busy}
+              disabled={(selectedTicketIds.length === 0 && !matchedTicket) || busy}
               className="flex items-center gap-2 rounded-lg border border-destructive bg-transparent px-5 py-3 text-sm font-extrabold text-destructive transition-colors hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-30 cursor-pointer active:scale-95 transition-all"
             >
               <Ban size={15} /> Skip/Requeue

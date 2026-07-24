@@ -6,12 +6,15 @@ import {
   DoorOpen,
   LogIn,
   ShieldAlert,
+  Package,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Panel } from "@/components/panel";
 import { useStore } from "@/lib/store";
-import { getLocalDateString } from "@/lib/format";
-import { STATUS_LABELS, type TicketStatus } from "@/lib/types";
+import { getLocalDateString, fmtTime, pad } from "@/lib/format";
+import { STATUS_LABELS, type Ticket, type TicketStatus } from "@/lib/types";
 
 const STATUS_ORDER: TicketStatus[] = [
   "awaiting_billing",
@@ -58,6 +61,7 @@ export default function ReportsPage() {
   const settings = useStore((s) => s.settings);
   const tz = settings?.timezone || "Asia/Kolkata";
   const [dateRange, setDateRange] = useState<"today" | "week" | "all">("today");
+  const [showWorkOrders, setShowWorkOrders] = useState(false);
 
   const now = new Date();
   const todayStr = getLocalDateString(now, tz);
@@ -71,7 +75,8 @@ export default function ReportsPage() {
     if (dateRange === "week") {
       const d = new Date(t.entryTime);
       const diff = now.getTime() - d.getTime();
-      return diff <= 7 * 24 * 60 * 60 * 1000;
+      // Guard against future-dated rows (diff < 0) so a clock-skewed entry can't slip in.
+      return diff >= 0 && diff <= 7 * 24 * 60 * 60 * 1000;
     }
     return true; // "all"
   });
@@ -109,6 +114,41 @@ export default function ReportsPage() {
     .slice(0, 6);
   const maxAgent = Math.max(1, ...byAgent.map(([, n]) => n));
 
+  // Work-Order (BOE) rollup: group the filtered tickets by (BOE, business day) so a
+  // recurring/shared BOE shows every vehicle/trip on it. Keyed by BOE + local date, so the
+  // same BOE on different days lists as separate work orders (matching the daily trip reset).
+  const workOrderGroups = Array.from(
+    filteredTickets
+      .reduce<Map<string, { boe: string; date: string; tickets: Ticket[] }>>((map, t) => {
+        const date = getLocalDateString(t.entryTime, tz);
+        const key = `${t.boe.trim().toUpperCase()}__${date}`;
+        const g = map.get(key) ?? { boe: t.boe, date, tickets: [] };
+        g.tickets.push(t);
+        map.set(key, g);
+        return map;
+      }, new Map())
+      .values(),
+  )
+    .map((g) => ({
+      ...g,
+      tickets: g.tickets
+        .slice()
+        .sort((a, b) => (a.boeVisit ?? 0) - (b.boeVisit ?? 0) || a.entryTime.localeCompare(b.entryTime)),
+    }))
+    .sort(
+      (a, b) =>
+        b.date.localeCompare(a.date) || b.tickets.length - a.tickets.length || a.boe.localeCompare(b.boe),
+    );
+  const sharedWorkOrders = workOrderGroups.filter((g) => g.tickets.length > 1).length;
+
+  const ticketTokens = (t: Ticket) => {
+    const out: string[] = [];
+    if (t.serial > 0) out.push(`G-${pad(t.serial)}`);
+    if (t.billingSerial) out.push(`B-${pad(t.billingSerial)}`);
+    if (t.loadingSerial) out.push(`L-${pad(t.loadingSerial)}`);
+    return out;
+  };
+
   const statusLabel = (status: string) => {
     const labels: Record<string, string> = {
       awaiting_loading: "Loading queue",
@@ -133,6 +173,7 @@ export default function ReportsPage() {
       "Ticket",
       "Vehicle",
       "BOE",
+      "Trip (BOE)",
       "Agent",
       "Status",
       "Entry time",
@@ -145,6 +186,7 @@ export default function ReportsPage() {
       t.id,
       t.vehicle,
       t.boe,
+      t.boeVisit ?? "",
       t.agent,
       statusLabel(t.status),
       t.entryTime ? new Date(t.entryTime).toISOString() : "",
@@ -289,6 +331,72 @@ export default function ReportsPage() {
           </div>
         </Panel>
       </div>
+
+      {/* Work-Order (BOE) rollup — every vehicle/trip grouped by BOE per day */}
+      <Panel className="p-6">
+        <button
+          onClick={() => setShowWorkOrders((v) => !v)}
+          className="flex w-full items-center justify-between text-left cursor-pointer"
+        >
+          <h3 className="flex items-center gap-2 text-[15px] font-extrabold text-slate-800">
+            <Package size={17} className="text-slate-500" />
+            Work Orders (BOE)
+            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-bold text-slate-500">
+              {workOrderGroups.length}
+            </span>
+            {sharedWorkOrders > 0 && (
+              <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-bold text-amber-700">
+                {sharedWorkOrders} shared
+              </span>
+            )}
+          </h3>
+          {showWorkOrders ? <ChevronUp size={18} className="text-slate-400" /> : <ChevronDown size={18} className="text-slate-400" />}
+        </button>
+
+        {showWorkOrders && (
+          <div className="mt-4 flex flex-col gap-3 max-h-[520px] overflow-y-auto pr-1">
+            {workOrderGroups.length === 0 && (
+              <p className="py-6 text-center text-sm text-slate-400">No work orders in this range.</p>
+            )}
+            {workOrderGroups.map((g) => (
+              <div key={`${g.boe}__${g.date}`} className="rounded-lg border border-slate-200 dark:border-slate-800">
+                <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-900/40 px-3.5 py-2">
+                  <span className="flex items-center gap-2 text-[13px] font-extrabold text-slate-800 dark:text-slate-100">
+                    {g.boe}
+                    <span className="text-[11px] font-semibold text-slate-400">{g.date}</span>
+                  </span>
+                  <span className="rounded-full bg-slate-200/70 dark:bg-slate-800 px-2 py-0.5 text-[11px] font-bold text-slate-600 dark:text-slate-300">
+                    {g.tickets.length} {g.tickets.length === 1 ? "vehicle" : "vehicles"}
+                  </span>
+                </div>
+                <div className="divide-y divide-slate-50 dark:divide-slate-800/60">
+                  {g.tickets.map((t) => (
+                    <div key={t.id} className="flex items-center justify-between gap-3 px-3.5 py-2 text-xs">
+                      <span className="flex min-w-0 items-center gap-2">
+                        <span className="shrink-0 rounded bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 text-[10px] font-extrabold text-slate-500 dark:text-slate-400">
+                          Trip {t.boeVisit ?? "—"}
+                        </span>
+                        <span className="truncate font-bold text-slate-800 dark:text-slate-100">
+                          {t.createdSource === "billing" ? "Billing desk" : t.vehicle}
+                        </span>
+                        {ticketTokens(t).map((tok) => (
+                          <span key={tok} className="shrink-0 rounded bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 text-[10px] font-bold text-slate-500 dark:text-slate-400">
+                            {tok}
+                          </span>
+                        ))}
+                      </span>
+                      <span className="flex shrink-0 items-center gap-2 text-slate-400">
+                        <span>{STATUS_LABELS[t.status]}</span>
+                        <span>{fmtTime(t.entryTime, tz)}</span>
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </Panel>
     </>
   );
 }

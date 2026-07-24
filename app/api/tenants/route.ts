@@ -12,17 +12,31 @@ export async function POST(req: Request) {
     const body = await req.json();
     const { action, name, domain, plan, seats, id, years, modules, adminUsername, adminPassword, expiryDate, status } = body;
 
+    // Coerce + bound an integer field; returns null when invalid.
+    const intInRange = (v: unknown, min: number, max: number): number | null => {
+      const n = Number(v);
+      return Number.isInteger(n) && n >= min && n <= max ? n : null;
+    };
+
     let state;
     if (action === "create") {
       if (!name || !plan || !seats) {
         return NextResponse.json({ error: "Missing onboarding fields" }, { status: 400 });
       }
-      state = await createTenant({ name, domain: domain || "", plan, seats: Number(seats), modules: modules || [], adminUsername, adminPassword });
+      const seatCount = intInRange(seats, 1, 100000);
+      if (seatCount === null) {
+        return NextResponse.json({ error: "Seats must be a whole number between 1 and 100000." }, { status: 400 });
+      }
+      state = await createTenant({ name, domain: domain || "", plan, seats: seatCount, modules: modules || [], adminUsername, adminPassword });
     } else if (action === "updateConfig") {
       if (!id || !seats) {
         return NextResponse.json({ error: "Missing config fields" }, { status: 400 });
       }
-      state = await updateTenantConfig(id, Number(seats), modules || []);
+      const seatCount = intInRange(seats, 1, 100000);
+      if (seatCount === null) {
+        return NextResponse.json({ error: "Seats must be a whole number between 1 and 100000." }, { status: 400 });
+      }
+      state = await updateTenantConfig(id, seatCount, modules || []);
     } else if (action === "setLicense") {
       if (!id || !expiryDate || !status) {
         return NextResponse.json({ error: "Missing license fields" }, { status: 400 });
@@ -32,7 +46,11 @@ export async function POST(req: Request) {
       if (!id || !years) {
         return NextResponse.json({ error: "Missing license extension fields" }, { status: 400 });
       }
-      state = await extendTenantLicense(id, Number(years));
+      const yearCount = intInRange(years, 1, 100);
+      if (yearCount === null) {
+        return NextResponse.json({ error: "Years must be a whole number between 1 and 100." }, { status: 400 });
+      }
+      state = await extendTenantLicense(id, yearCount);
     } else if (action === "delete") {
       if (!id) {
         return NextResponse.json({ error: "Missing client ID" }, { status: 400 });

@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import { MapPin, Printer, Truck, Eye, X } from "lucide-react";
 import { toast } from "sonner";
 import { Panel } from "@/components/panel";
-import { useStore } from "@/lib/store";
+import { activeVisitsForBoe, useStore } from "@/lib/store";
 import { fmtDate, fmtTime, getLocalDateString } from "@/lib/format";
 import { printToken } from "@/lib/print-token";
 import { ChevronDown, ChevronUp } from "lucide-react";
@@ -45,33 +45,35 @@ export default function EntryPage() {
       return;
     }
 
-    // Try to find a match by BOE first (since billing gate uses BOE as primary key)
-    let matched = tickets.find(
-      (t) =>
-        t.boe.toUpperCase() === b &&
-        t.createdSource === "billing" &&
-        t.status !== "exited" &&
-        t.status !== "held"
+    // Today's active billing-first tickets for this BOE (day-scoped so a prior-day same-BOE
+    // ticket can't be linked). A BOE is one-to-many, so prefer the one whose vehicle matches
+    // what's typed; otherwise fall back to the first (earliest trip).
+    const billingFirst = activeVisitsForBoe(tickets, b, tz).filter(
+      (t) => t.createdSource === "billing",
     );
+    let matched: Ticket | undefined =
+      billingFirst.find((t) => t.vehicle.toUpperCase() === v) ?? billingFirst[0];
 
-    // Fallback: match by vehicle number
+    // Fallback: match by vehicle number (day-scoped) when the BOE itself didn't match
     if (!matched && v) {
       matched = tickets.find(
         (t) =>
           (t.vehicle.toUpperCase() === v || t.boe.toUpperCase() === v) &&
           t.createdSource === "billing" &&
           t.status !== "exited" &&
-          t.status !== "held"
+          t.status !== "held" &&
+          getLocalDateString(t.entryTime, tz) === todayStr
       );
     }
 
     if (matched) {
-      if (boe.trim().toUpperCase() !== matched.boe.toUpperCase()) {
-        setBoe(matched.boe);
-      }
-      // Fill agent/remarks only when the matched ticket changes (a user action),
-      // not on every background tickets poll.
+      // Fill BOE/agent/remarks only when the matched ticket CHANGES (a real user action
+      // like typing a new vehicle) — not on every render/keystroke. Otherwise editing or
+      // clearing the BOE would snap straight back to matched.boe and be un-editable.
       if (lastFilledMatchRef.current !== matched.id) {
+        if (boe.trim().toUpperCase() !== matched.boe.toUpperCase()) {
+          setBoe(matched.boe);
+        }
         setAgent(matched.billingAgent || matched.agent || "");
         setRemarks(matched.billingRemarks || matched.remarks || "");
         lastFilledMatchRef.current = matched.id;
@@ -134,15 +136,13 @@ export default function EntryPage() {
 
     setBusy(true);
     
-    // If we matched a billing-first ticket, update it with the entry data instead of creating a new one
+    // If we matched a billing-first ticket, update it with the entry data instead of creating a new one.
+    // Day-scoped + prefer the ticket whose vehicle matches this arrival (BOE is one-to-many).
     if (prefillBoe) {
-      const matched = tickets.find(
-        (t) =>
-          t.boe.toUpperCase() === prefillBoe.toUpperCase() &&
-          t.createdSource === "billing" &&
-          t.status !== "exited" &&
-          t.status !== "held"
+      const billingFirst = activeVisitsForBoe(tickets, prefillBoe, tz).filter(
+        (t) => t.createdSource === "billing",
       );
+      const matched = billingFirst.find((t) => t.vehicle.toUpperCase() === v) ?? billingFirst[0];
       if (matched) {
         const ok = await useStore.getState().ticketAction(matched.id, "update-entry", {
           vehicle: v,
@@ -404,7 +404,14 @@ export default function EntryPage() {
                 >
                   <div className="flex flex-col items-start">
                     <span className="font-extrabold text-[12px] text-slate-800">{t.vehicle}</span>
-                    <span className="text-[10px] text-slate-400">BOE: {t.boe}</span>
+                    <span className="flex items-center gap-1.5 text-[10px] text-slate-400">
+                      BOE: {t.boe}
+                      {t.boeVisit ? (
+                        <span className="rounded bg-slate-100 px-1 py-0.5 font-bold text-slate-500">
+                          Trip {t.boeVisit}
+                        </span>
+                      ) : null}
+                    </span>
                   </div>
                   <div className="flex items-center gap-3">
                     <div className="text-right">
@@ -539,6 +546,7 @@ function TokenSlip({ ticket, settings }: { ticket: Ticket; settings: SystemSetti
       <div className="mb-4 flex flex-col gap-1.5 text-left text-xs">
         <TokenRow k="VEHICLE:" v={ticket.vehicle || "—"} />
         <TokenRow k="BOE:" v={ticket.boe || "—"} />
+        {ticket.boeVisit ? <TokenRow k="TRIP (BOE):" v={`#${ticket.boeVisit}`} /> : null}
         <TokenRow k="CHA / AGENT:" v={ticket.agent || "—"} />
         <TokenRow k="DRIVER CONTACT:" v={ticket.driverContact || "—"} />
         <TokenRow k="DRIVER DL:" v={ticket.driverDl || "—"} />
